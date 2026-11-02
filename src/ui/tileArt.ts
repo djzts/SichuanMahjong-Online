@@ -237,13 +237,14 @@ function slantStick(x: number, y: number, h: number, angle: number, color: strin
   return `<g transform="rotate(${angle} ${x} ${y})">${stick(x, y, h, color)}</g>`;
 }
 
-/** 八条: an "M" of four slanted sticks on top and a "W" below, forming two diamonds. */
+/** 八条: a "W" of four slanted sticks on top, an "M" (straight sides, V inside) below. */
 function eightBamboo(): string {
   const xs = [10.5, 23.5, 36.5, 49.5];
-  const top = [16, -16, 16, -16];
+  const w = [-15, 15, -15, 15];
+  const m = [0, -19, 19, 0];
   return (
-    xs.map((x, i) => slantStick(x, 22, 27, top[i], GREEN)).join('') +
-    xs.map((x, i) => slantStick(x, 58, 27, -top[i], GREEN)).join('')
+    xs.map((x, i) => slantStick(x, 22, 27, w[i], GREEN)).join('') +
+    xs.map((x, i) => slantStick(x, 58, 27, m[i], GREEN)).join('')
   );
 }
 
