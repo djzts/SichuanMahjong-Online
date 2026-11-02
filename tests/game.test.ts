@@ -186,7 +186,7 @@ describe('winning', () => {
     });
     g = act(g, 0, { type: 'hu' });
     expect(g.players[0].won!.fan.items[0].key).toBe('tianhu');
-    expect(deltasOf(g)).toEqual([27, -9, -9, -9]);
+    expect(deltasOf(g)).toEqual([51, -17, -17, -17]); // 16 (cap) + 1 self-draw base each
 
     let h = setupPlay({
       hands: ['123m 456m 789m 11s 23s 9p', '123m 456m 789m 123s 5s', JUNK, JUNK],
@@ -335,9 +335,9 @@ describe('exhaustive draw (流局)', () => {
     const huazhu = g.settlements[1];
     expect(huazhu.seat).toBe(2);
     expect(huazhu.payments.map((p) => [p.to, p.amount])).toEqual([
-      [0, 8],
-      [1, 8],
-      [3, 8],
+      [0, 16],
+      [1, 16],
+      [3, 16],
     ]);
     expect(g.settlements[2].payments.map((p) => [p.from, p.to, p.amount])).toEqual([
       [1, 0, 1],
@@ -349,7 +349,7 @@ describe('exhaustive draw (流局)', () => {
       [1, 3, 2],
     ]);
     const d = deltasOf(g);
-    expect(d).toEqual([9, 6, -24, 9]);
+    expect(d).toEqual([17, 14, -48, 17]);
     expect(d.reduce((a, b) => a + b, 0)).toBe(0);
   });
 });

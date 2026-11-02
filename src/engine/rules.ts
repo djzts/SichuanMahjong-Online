@@ -78,7 +78,7 @@ export const DEFAULT_FAN_TABLE: FanTable = {
 
 export const DEFAULT_RULES: Rules = {
   baseScore: 1,
-  capFan: 3,
+  capFan: 4, // 4 番封顶 = 16 倍底分
   selfDrawBonus: 'base',
   exchangeThree: true,
   windRain: true,

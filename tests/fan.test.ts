@@ -26,15 +26,25 @@ describe('hand patterns', () => {
     expect(r.fan).toBe(n);
   });
 
-  it('pure seven pairs and pure dragon seven pairs are capped', () => {
+  it('the cap is 4 fan (16× base) by default', () => {
+    expect(rules.capFan).toBe(4);
     const a = fan('11m 22m 33m 44m 55m 66m 77m');
     expect(a.pattern).toBe('qingqidui');
-    expect(a.rawFan).toBe(4);
-    expect(a.fan).toBe(3);
-    expect(a.capped).toBe(true);
+    expect(a.fan).toBe(4);
+    expect(a.capped).toBe(false);
     const b = fan('1111m 22m 33m 44m 55m 66m');
     expect(b.pattern).toBe('qinglongqidui');
     expect(b.rawFan).toBe(5);
+    expect(b.fan).toBe(4);
+    expect(b.capped).toBe(true);
+    expect(winAmount(b, false, rules)).toBe(16);
+  });
+
+  it('the cap is configurable', () => {
+    const r3 = makeRules({ capFan: 3 });
+    const a = fan('11m 22m 33m 44m 55m 66m 77m', [], { selfDraw: false }, r3);
+    expect(a.fan).toBe(3);
+    expect(a.capped).toBe(true);
   });
 
   it('composite patterns do not stack their components', () => {
@@ -87,16 +97,16 @@ describe('bonuses and cap', () => {
   });
 
   it('天胡 / 地胡 go straight to the cap', () => {
-    expect(fan('123m 456m 789m 234s 55s', [], { selfDraw: true, heavenly: true }).fan).toBe(3);
-    expect(fan('123m 456m 789m 234s 55s', [], { selfDraw: true, earthly: true }).fan).toBe(3);
+    expect(fan('123m 456m 789m 234s 55s', [], { selfDraw: true, heavenly: true }).fan).toBe(4);
+    expect(fan('123m 456m 789m 234s 55s', [], { selfDraw: true, earthly: true }).fan).toBe(4);
   });
 
   it('payment = base × 2^fan, self-draw adds one base after the cap', () => {
     const qing = fan('123m 456m 789m 234m 55m');
     expect(winAmount(qing, false, rules)).toBe(4);
     expect(winAmount(qing, true, rules)).toBe(5);
-    const big = fan('11m 22m 33m 44m 55m 66m 77m');
-    expect(winAmount(big, true, rules)).toBe(9);
+    const big = fan('1111m 22m 33m 44m 55m 66m'); // 5 fan, capped at 4
+    expect(winAmount(big, true, rules)).toBe(17);
   });
 
   it('self-draw "add fan" mode adds a fan before the cap', () => {
@@ -104,14 +114,18 @@ describe('bonuses and cap', () => {
     const f = fan('123m 456m 789m 234m 55m', [], { selfDraw: true }, r);
     expect(f.fan).toBe(3);
     expect(winAmount(f, true, r)).toBe(8);
-    const capped = fan('111m 333m 555m 777m 99m', [], { selfDraw: true }, r);
-    expect(capped.fan).toBe(3);
+    const qingdui = fan('111m 333m 555m 777m 99m', [], { selfDraw: true }, r);
+    expect(qingdui.fan).toBe(4);
+    const capped = fan('11m 22m 33m 44m 55m 66m 77m', [], { selfDraw: true }, r);
+    expect(capped.rawFan).toBe(5);
+    expect(capped.fan).toBe(4);
   });
 });
 
 describe('maxReadyFan (查大叫)', () => {
   it('takes the best possible win, capped', () => {
-    expect(maxReadyFan(T('11m 22m 33m 44m 55m 66m 7m'), [], rules)).toBe(3);
+    expect(maxReadyFan(T('11m 22m 33m 44m 55m 66m 7m'), [], rules)).toBe(4);
+    expect(maxReadyFan(T('1111m 22m 33m 44m 55m 6m'), [], rules)).toBe(4); // 5 fan, capped
     expect(maxReadyFan(T('11m 22m 33m 44m 55s 66s 7s'), [], rules)).toBe(2);
     expect(maxReadyFan(T('111m 333m 555s 77s 99s'), [], rules)).toBe(1);
   });

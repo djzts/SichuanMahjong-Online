@@ -203,7 +203,7 @@ export const en: typeof zh = {
     'After the deal, pass three tiles, then choose a void suit. Discard void-suit tiles first; you cannot win while holding any.',
     'Blood battle: a winner leaves the hand and the rest play on until three have won or the wall is empty.',
     'Kongs pay at once: exposed kong 2 from the discarder, added kong 1 from each, concealed kong 2 from each (in base points).',
-    'Each payer pays base × 2^fan, capped at 3 fan. A self-draw adds 1 base from each payer.',
+    'Each payer pays base × 2^fan, capped at 4 fan (16×). A self-draw adds 1 base from each payer.',
     'Exhaustive draw: flower pigs pay the cap, players who are not ready pay the ready ones, and refund their kong money.',
     '5–7 players: 4 play each hand; the others sit out as temporary observers and rotate in.',
   ],
