@@ -1248,3 +1248,27 @@ h3 {
     font-size: 20px;
   }
 }
+
+/* ---------- In-page dialogs ---------- */
+
+.dialog-bg {
+  z-index: 70;
+}
+
+.modal.dialog {
+  width: min(420px, 100%);
+}
+
+.modal.dialog p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.copy-text {
+  width: 100%;
+  font-size: 13px;
+}
+
+.hint.center {
+  text-align: center;
+}

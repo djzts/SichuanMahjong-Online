@@ -9,6 +9,11 @@ import { LocalSession, randomRoomCode, RemoteSession, type Session } from './ses
 import { S } from './strings';
 import { tileFaceSvg } from './tileArt';
 
+/** Single-player preview build (no online play), e.g. for hosts that block WebRTC. */
+const SOLO_ONLY = import.meta.env.VITE_SOLO_ONLY === '1';
+
+type Dialog = { kind: 'leave' } | { kind: 'copy'; text: string };
+
 type Route =
   | { page: 'home'; code?: string }
   | { page: 'solo'; debug: boolean; seed?: number }
@@ -73,6 +78,7 @@ interface UIState {
   lastEventSeq: number;
   viewBase: number;
   showLog: boolean;
+  dialog: Dialog | null;
   hideResult: boolean;
   deadlineAt: number | null;
   toastMsg: string;
@@ -115,6 +121,7 @@ export class App {
       lastEventSeq: 0,
       viewBase: 0,
       showLog: false,
+      dialog: null,
       hideResult: false,
       deadlineAt: null,
       toastMsg: '',
@@ -214,7 +221,7 @@ export class App {
           html = `<div class="banner ${status.kind}">${esc(status.text)}</div>` + html;
       }
     }
-    this.screen.innerHTML = html;
+    this.screen.innerHTML = html + this.renderDialog();
     const v = s?.view();
     if (v?.game) this.showEventToasts(v);
   }
@@ -236,7 +243,10 @@ export class App {
             ? `<p class="hint">${S.roomCode} ${join.code}</p>
                <div class="row"><button class="btn primary" data-act="${join.role === 'spectator' ? 'join-watch' : 'join-seat'}" data-code="${join.code}">${join.role === 'spectator' ? S.joinWatch : S.joinSeat}</button>
                <button class="btn" data-act="go-home">${S.back}</button></div>`
-            : `
+            : SOLO_ONLY
+              ? `<button class="btn primary wide" data-act="solo">${S.solo}</button>
+                 <p class="hint center">${S.soloOnlyNote}</p>`
+              : `
         <button class="btn primary wide" data-act="solo">${S.solo}</button>
         <button class="btn primary wide" data-act="create">${S.createRoom}</button>
         ${restore ? `<button class="btn wide" data-act="restore" data-code="${restore}">${S.restoreRoom(restore)}</button>` : ''}
@@ -250,6 +260,20 @@ export class App {
         <details class="rules"><summary>${S.rulesTitle}</summary><ul>${S.rulesBody.map((l) => `<li>${l}</li>`).join('')}</ul></details>
       </div>
     </div>`;
+  }
+
+  private renderDialog(): string {
+    const d = this.ui.dialog;
+    if (!d) return '';
+    const body =
+      d.kind === 'leave'
+        ? `<p>${S.leaveConfirm}</p>
+           <div class="row end"><button class="btn" data-act="dialog-close">${S.cancel}</button>
+           <button class="btn primary" data-act="leave-yes">${S.leave}</button></div>`
+        : `<p>${S.copyManually}</p>
+           <input id="copy-text" class="copy-text" readonly value="${esc(d.text)}">
+           <div class="row end"><button class="btn primary" data-act="dialog-close">${S.close}</button></div>`;
+    return `<div class="modal-bg dialog-bg"><div class="modal dialog">${body}</div></div>`;
   }
 
   private renderMessage(text: string, spinner = false): string {
@@ -792,7 +816,7 @@ export class App {
     switch (act) {
       case 'solo': {
         const name = this.readName();
-        if (name) location.hash = '#/solo';
+        if (name) location.hash = '#solo';
         break;
       }
       case 'create': {
@@ -820,19 +844,30 @@ export class App {
       }
       case 'go-home':
         this.ui.toastMsg = '';
-        location.hash = '#/';
+        this.goHome();
         break;
       case 'leave':
-        if (confirm(S.leaveConfirm)) location.hash = '#/';
+        this.ui.dialog = { kind: 'leave' };
+        this.render();
+        break;
+      case 'leave-yes':
+        this.ui.dialog = null;
+        this.goHome();
+        break;
+      case 'dialog-close':
+        this.ui.dialog = null;
+        this.render();
         break;
       case 'copy': {
         const text = el.dataset.text!;
+        const manual = () => {
+          this.ui.dialog = { kind: 'copy', text };
+          this.render();
+          this.screen.querySelector<HTMLInputElement>('#copy-text')?.select();
+        };
         if (navigator.clipboard)
-          navigator.clipboard.writeText(text).then(
-            () => this.centerToast(S.copied),
-            () => prompt('', text),
-          );
-        else prompt('', text);
+          navigator.clipboard.writeText(text).then(() => this.centerToast(S.copied), manual);
+        else manual();
         break;
       }
       case 'ai':
@@ -909,6 +944,12 @@ export class App {
         this.intent({ type: 'pass' });
         break;
     }
+  }
+
+  private goHome(): void {
+    this.ui.dialog = null;
+    if (parseRoute().page === 'home') this.route();
+    else location.hash = '';
   }
 
   private onTile(g: GameView, i: number): void {
