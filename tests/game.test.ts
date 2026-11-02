@@ -25,6 +25,16 @@ describe('dealing and setup', () => {
     expect(tileCensus(g).every((n) => n === 4)).toBe(true);
   });
 
+  it('the 换三张 direction is random: each of the three comes up about a third of the time', () => {
+    const n = { cw: 0, ccw: 0, across: 0 };
+    for (let seed = 0; seed < 900; seed++)
+      n[createGame({ rules: makeRules(), seed, dealer: 0 }).exchangeDir]++;
+    for (const k of ['cw', 'ccw', 'across'] as const) {
+      expect(n[k]).toBeGreaterThan(240);
+      expect(n[k]).toBeLessThan(360);
+    }
+  });
+
   it('same seed → same deal', () => {
     const a = createGame({ rules: makeRules(), seed: 7, dealer: 0 });
     const b = createGame({ rules: makeRules(), seed: 7, dealer: 0 });

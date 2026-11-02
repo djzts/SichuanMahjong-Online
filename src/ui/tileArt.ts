@@ -232,20 +232,56 @@ const STICKS: Record<number, { pts: P[]; h: number; red?: number[] }> = {
   },
 };
 
+/** A stick rotated by `angle` degrees around its centre (positive = top leans right). */
+function slantStick(x: number, y: number, h: number, angle: number, color: string): string {
+  return `<g transform="rotate(${angle} ${x} ${y})">${stick(x, y, h, color)}</g>`;
+}
+
+/** 八条: an "M" of four slanted sticks on top and a "W" below, forming two diamonds. */
+function eightBamboo(): string {
+  const xs = [10.5, 23.5, 36.5, 49.5];
+  const top = [16, -16, 16, -16];
+  return (
+    xs.map((x, i) => slantStick(x, 22, 27, top[i], GREEN)).join('') +
+    xs.map((x, i) => slantStick(x, 58, 27, -top[i], GREEN)).join('')
+  );
+}
+
+/** 幺鸡: a perched peacock-like bird, facing left, with a fanned tail. */
+function bird(): string {
+  const DARK = '#0f5a2b';
+  const feather = (cx: number, cy: number, angle: number) =>
+    `<g transform="rotate(${angle} ${cx} ${cy})">` +
+    `<ellipse cx="${cx}" cy="${cy}" rx="4.6" ry="12" fill="${GREEN}" stroke="${DARK}" stroke-width="0.8"/>` +
+    `<ellipse cx="${cx}" cy="${cy - 6}" rx="2.6" ry="3.4" fill="${BLUE}"/>` +
+    `<circle cx="${cx}" cy="${cy - 6.2}" r="1.3" fill="${RED}"/>` +
+    `</g>`;
+  return (
+    // tail fan behind the body
+    feather(44, 27, 18) +
+    feather(49, 36, 48) +
+    feather(37, 23, -8) +
+    // branch and feet
+    `<path d="M10 70 Q30 64 52 70" stroke="#8a5a2b" stroke-width="2.6" fill="none" stroke-linecap="round"/>` +
+    `<path d="M27 57 L26 67 M34 57 L35 67" stroke="#c77700" stroke-width="1.8" stroke-linecap="round"/>` +
+    `<path d="M23 67 L29 67 M32 67 L38 67" stroke="#c77700" stroke-width="1.6" stroke-linecap="round"/>` +
+    // body, belly and wing
+    `<path d="M17 40 Q16 30 24 30 Q38 31 43 44 Q44 56 32 58 Q20 58 17 40 Z" fill="${GREEN}" stroke="${DARK}" stroke-width="0.9"/>` +
+    `<path d="M20 43 Q22 55 31 55 Q24 50 22 42 Z" fill="#7fc79a"/>` +
+    `<path d="M26 38 Q39 38 41 49 Q33 51 27 45 Z" fill="${DARK}"/>` +
+    `<path d="M29 42 Q36 43 38 48" stroke="#7fc79a" stroke-width="1" fill="none"/>` +
+    // head, crest, eye and beak
+    `<circle cx="19" cy="27" r="7" fill="${RED}" stroke="#8e1b1b" stroke-width="0.8"/>` +
+    `<path d="M17 20.5 L15.5 14 M19.5 20 L20 13 M22 20.8 L24.5 14.5" stroke="${RED}" stroke-width="1.6" stroke-linecap="round"/>` +
+    `<circle cx="15.5" cy="14" r="1.6" fill="${BLUE}"/><circle cx="20" cy="13" r="1.6" fill="${BLUE}"/><circle cx="24.5" cy="14.5" r="1.6" fill="${BLUE}"/>` +
+    `<circle cx="17" cy="25.8" r="2" fill="#fff"/><circle cx="16.6" cy="25.8" r="1.1" fill="#111"/>` +
+    `<path d="M12.6 26 L6 28.6 L12.8 30.2 Z" fill="#e0a100" stroke="#a87400" stroke-width="0.6"/>`
+  );
+}
+
 function bamboo(rank: number): string {
-  if (rank === 1) {
-    // A stylised bird standing on a bamboo stalk.
-    return (
-      `<path d="M30 70 L30 46" stroke="${GREEN}" stroke-width="5" stroke-linecap="round"/>` +
-      `<ellipse cx="30" cy="36" rx="14" ry="11" fill="${GREEN}"/>` +
-      `<path d="M18 34 Q8 22 14 12 Q20 22 26 28 Z" fill="${BLUE}"/>` +
-      `<path d="M42 34 Q52 22 46 12 Q40 22 34 28 Z" fill="${BLUE}"/>` +
-      `<circle cx="30" cy="22" r="7" fill="${RED}"/>` +
-      `<circle cx="32" cy="21" r="1.8" fill="#fff"/>` +
-      `<path d="M36 22 L43 20 L36 25 Z" fill="#e0a100"/>` +
-      `<path d="M22 70 L38 70" stroke="${GREEN}" stroke-width="3" stroke-linecap="round"/>`
-    );
-  }
+  if (rank === 1) return bird();
+  if (rank === 8) return eightBamboo();
   const { pts, h, red = [] } = STICKS[rank];
   return pts.map(([x, y], i) => stick(x, y, h, red.includes(i) ? RED : GREEN)).join('');
 }

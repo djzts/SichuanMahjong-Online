@@ -71,6 +71,16 @@ function meldHtml(m: MeldView, cls: string): string {
   return `<div class="meld">${inner}</div>`;
 }
 
+/** How tiles of the player at a table position are drawn: 1 = right, 2 = across, 3 = left. */
+function orient(pos: number): string {
+  return pos === 1 ? 'side side-r' : pos === 3 ? 'side side-l' : pos === 2 ? 'flip' : '';
+}
+
+/** Tiles per column in the left / right discard piles. */
+function sideRiverRows(): number {
+  return window.matchMedia('(orientation: portrait)').matches ? 10 : 6;
+}
+
 function signed(n: number): string {
   return n > 0 ? `+${n}` : String(n);
 }
@@ -120,6 +130,11 @@ export class App {
       }
     });
     window.addEventListener('hashchange', () => this.route());
+    // Side discard piles change shape with the orientation. Only redraw the table, so that
+    // a phone keyboard opening on the home page does not wipe what is being typed.
+    window.addEventListener('resize', () => {
+      if (this.screen.querySelector('.table')) this.requestRender();
+    });
     setInterval(() => this.tickCountdown(), 250);
     this.route();
   }
@@ -443,21 +458,22 @@ export class App {
 
   private otherSeat(v: ClientView, g: GameView, seat: number, pos: number): string {
     const p = g.players[seat];
-    const melds = (p.melds ?? []).map((m) => meldHtml(m, 'mini')).join('');
+    const o = orient(pos);
+    const melds = (p.melds ?? []).map((m) => meldHtml(m, `mini ${o}`)).join('');
     let handPart = '';
     if (p.revealed) {
       const winAt = p.revealed.tile === null ? -1 : p.revealed.hand.lastIndexOf(p.revealed.tile);
       handPart = `<div class="tiles revealed">${p.revealed.hand
-        .map((t, i) => tileHtml(t, `mini ${i === winAt ? 'win' : ''}`))
+        .map((t, i) => tileHtml(t, `mini ${o} ${i === winAt ? 'win' : ''}`))
         .join('')}</div>`;
     } else if (p.debugHand) {
-      handPart = `<div class="tiles debug">${p.debugHand.map((t) => tileHtml(t, 'mini')).join('')}</div>`;
+      handPart = `<div class="tiles debug">${p.debugHand.map((t) => tileHtml(t, `mini ${o}`)).join('')}</div>`;
     } else if (p.handCount !== undefined && !p.won) {
       const n = p.handCount;
       handPart =
         pos === 2
           ? `<div class="tiles backs">${Array.from({ length: n }, () => backHtml('mini')).join('')}</div>`
-          : `<div class="tiles backs vertical"><span class="count">${n}</span>${backHtml('mini')}</div>`;
+          : `<div class="tiles edges" title="${n}"><span class="count">${n}</span>${'<div class="edge"></div>'.repeat(n)}</div>`;
     }
     return `<div class="seat pos-${pos}">
       ${this.plate(v, g, seat)}
@@ -472,10 +488,21 @@ export class App {
     const lastDiscard = g.events.length ? g.events[g.events.length - 1] : null;
     const highlightLast =
       claim || (lastDiscard?.kind === 'discard' && lastDiscard.seat === seat && g.turn === seat);
+    const o = orient(pos);
+    const per = sideRiverRows();
+    const side = pos === 1 || pos === 3;
     return `<div class="river pos-${pos}">${p.discards
-      .map((t, i) =>
-        tileHtml(t, `river-tile ${highlightLast && i === p.discards.length - 1 ? 'last' : ''}`),
-      )
+      .map((t, i) => {
+        // Left player: top-to-bottom, new columns away from the centre (the grid is RTL).
+        // Right player: bottom-to-top, new columns away from the centre.
+        const row = i % per;
+        const col = Math.floor(i / per) + 1;
+        const style = side
+          ? `style="grid-column:${col};grid-row:${pos === 3 ? row + 1 : per - row}"`
+          : '';
+        const last = highlightLast && i === p.discards.length - 1 ? 'last' : '';
+        return tileHtml(t, `river-tile ${o} ${last}`, style);
+      })
       .join('')}</div>`;
   }
 
