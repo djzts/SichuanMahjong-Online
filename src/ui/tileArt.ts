@@ -3,6 +3,7 @@
  * viewBox is 60 × 80. 万 = numeral + 万, 条 = bamboo sticks, 筒 = circles.
  */
 import { rankOf, suitOf, type Tile } from '../engine/tiles';
+import { lang } from './i18n';
 
 const NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
 const RED = '#c62828';
@@ -250,7 +251,14 @@ function bamboo(rank: number): string {
 }
 
 function characters(rank: number): string {
+  // English version: a small Arabic numeral in the top-left corner helps read 一…九.
+  const numeral =
+    lang === 'en'
+      ? `<text x="7.5" y="15" text-anchor="middle" font-size="13" font-weight="700" fill="${BLUE}" ` +
+        `font-family="system-ui,-apple-system,'Segoe UI',sans-serif">${rank}</text>`
+      : '';
   return (
+    numeral +
     `<text x="30" y="34" text-anchor="middle" font-size="27" font-weight="700" fill="#1d2433" ` +
     `font-family="'Noto Serif SC','Songti SC','SimSun',serif">${NUMERALS[rank - 1]}</text>` +
     `<text x="30" y="70" text-anchor="middle" font-size="29" font-weight="700" fill="${RED}" ` +
@@ -258,15 +266,16 @@ function characters(rank: number): string {
   );
 }
 
-const cache = new Map<Tile, string>();
+const cache = new Map<string, string>();
 
 export function tileFaceSvg(t: Tile): string {
-  let svg = cache.get(t);
+  const key = `${lang}:${t}`;
+  let svg = cache.get(key);
   if (!svg) {
     const rank = rankOf(t);
     const body = suitOf(t) === 0 ? characters(rank) : suitOf(t) === 1 ? bamboo(rank) : dots(rank);
     svg = `<svg viewBox="0 0 60 80" aria-hidden="true" focusable="false">${body}</svg>`;
-    cache.set(t, svg);
+    cache.set(key, svg);
   }
   return svg;
 }
@@ -274,4 +283,12 @@ export function tileFaceSvg(t: Tile): string {
 /** Small suit icon for void-suit markers etc. */
 export function suitIcon(suit: number): string {
   return ['万', '条', '筒'][suit];
+}
+
+export function tileHtml(t: Tile, cls = '', attrs = ''): string {
+  return `<div class="tile ${cls}" ${attrs}>${tileFaceSvg(t)}</div>`;
+}
+
+export function backHtml(cls = ''): string {
+  return `<div class="tile back ${cls}"></div>`;
 }

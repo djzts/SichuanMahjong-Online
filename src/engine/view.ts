@@ -6,7 +6,6 @@
  *   and tile-free status only (plus whatever rules.spectator.visible allows). Hands are never
  *   included for them.
  */
-import { FAN_EXTRA_NAMES } from './fan';
 import {
   handDeltas,
   legalActions,
@@ -17,6 +16,7 @@ import {
   type ExchangeDir,
   type GameEventKind,
   type GameState,
+  type KongUnpaidReason,
   type LegalActions,
   type Settlement,
   type SettlementKind,
@@ -28,11 +28,10 @@ import {
   type RoomPhase,
   type RoomState,
 } from './room';
-import { FAN_NAMES } from './rules';
 import type { Suit, Tile } from './tiles';
 import type { MeldKind } from './types';
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** Who is looking at a hand: a player at the table, or someone who only watches. */
 export type GameViewer = { kind: 'player'; seat: number; debugAll?: boolean } | { kind: 'watcher' };
@@ -109,7 +108,8 @@ export interface MyView {
 }
 
 export interface FanView {
-  items: { name: string; fan: number }[];
+  /** Fan keys (e.g. 'qingyise', 'gen', 'tianhu'); the client names them in its own language. */
+  items: { key: string; fan: number; count?: number }[];
   fan: number;
   capped: boolean;
 }
@@ -121,6 +121,8 @@ export interface SettlementView {
   meldKind?: MeldKind;
   tile?: Tile;
   fan?: FanView;
+  /** A kong that counts but collects nothing. */
+  unpaid?: KongUnpaidReason;
   deltas: number[];
 }
 
@@ -180,14 +182,9 @@ export interface ClientView {
 function fanView(s: Settlement): FanView | undefined {
   if (!s.fan) return undefined;
   return {
-    items: s.fan.items.map((i) => ({
-      name:
-        i.key in FAN_NAMES
-          ? FAN_NAMES[i.key as keyof typeof FAN_NAMES] +
-            (i.count && i.count > 1 ? `×${i.count}` : '')
-          : FAN_EXTRA_NAMES[i.key as keyof typeof FAN_EXTRA_NAMES],
-      fan: i.fan,
-    })),
+    items: s.fan.items.map((i) =>
+      i.count ? { key: i.key, fan: i.fan, count: i.count } : { key: i.key, fan: i.fan },
+    ),
     fan: s.fan.fan,
     capped: s.fan.capped,
   };
@@ -264,6 +261,7 @@ export function gameViewFor(
       from: s.from,
       deltas: settlementDeltas(s),
     };
+    if (s.unpaid) v.unpaid = s.unpaid;
     if (!spectator || vis.fanDetail) {
       const f = fanView(s);
       if (f) v.fan = f;

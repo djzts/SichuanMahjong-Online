@@ -37,6 +37,11 @@ export interface Rules {
   passHuLock: boolean; // 过水不胡
   refundOnDraw: boolean; // 退税
   heavenEarthCap: boolean; // 天胡/地胡 直接封顶
+  /**
+   * 补杠只在两种情况下不收钱（仍然算杠）：先碰后杠（碰的时候手里已有暗刻），
+   * 或者摸到第 4 张后没有当轮贴杠。
+   */
+  strictAddedKongPay: boolean;
   fan: FanTable;
   timers: {
     enabled: boolean;
@@ -82,6 +87,7 @@ export const DEFAULT_RULES: Rules = {
   passHuLock: true,
   refundOnDraw: true,
   heavenEarthCap: true,
+  strictAddedKongPay: true,
   fan: DEFAULT_FAN_TABLE,
   timers: {
     enabled: true,

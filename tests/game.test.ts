@@ -284,6 +284,9 @@ describe('pung and kong', () => {
     const p0 = g.players[0];
     p0.hand = T('5s 123m 456m 789m 9s');
     p0.melds = [{ kind: 'pung', tile: t1('5s'), from: 2 }];
+    // The 4th 5s was drawn this turn, so adding it now gets paid.
+    p0.drawn = t1('5s');
+    p0.turnDraws = [t1('5s')];
     return g;
   };
 
@@ -348,5 +351,74 @@ describe('exhaustive draw (流局)', () => {
     const d = deltasOf(g);
     expect(d).toEqual([9, 6, -24, 9]);
     expect(d.reduce((a, b) => a + b, 0)).toBe(0);
+  });
+});
+
+describe('added kongs that count but collect nothing', () => {
+  it('先碰后杠: punged while holding a concealed triplet, konged later → no payment', () => {
+    // Seat 3 holds 555s; seat 0 discards the 4th 5s; seat 3 pungs instead of konging.
+    let g = setupPlay({
+      hands: ['123m 456m 789m 11s 235s', JUNK, JUNK, '555s 147m 258m 369m 1s'],
+      wall: '9m 9m 9m 2p 1p',
+    });
+    g = act(g, 0, { type: 'discard', tile: t1('5s') });
+    g = act(g, 3, { type: 'pung' });
+    expect(g.players[3].melds[0]).toMatchObject({ kind: 'pung', heldFourth: true });
+    g = act(g, 3, { type: 'discard', tile: t1('7m') });
+    g = act(g, 0, { type: 'discard', tile: t1('9m') }); // seat 0 drew 9m
+    g = act(g, 1, { type: 'discard', tile: t1('9m') });
+    g = act(g, 2, { type: 'discard', tile: t1('9m') });
+    // Seat 3's turn: it drew 2p, and can kong the 5s it kept in hand.
+    expect(g.step).toMatchObject({ kind: 'act', seat: 3 });
+    expect(legalActions(g, 3).unpaidKongs).toEqual([t1('5s')]);
+    g = act(g, 3, { type: 'kong', tile: t1('5s') });
+    const kong = g.settlements.find((s) => s.kind === 'kong')!;
+    expect(kong).toMatchObject({ meldKind: 'kong-added', unpaid: 'pung-then-kong', payments: [] });
+    expect(g.players[3].melds[0].kind).toBe('kong-added');
+    expect(g.step).toMatchObject({ kind: 'act', seat: 3, afterKong: true }); // still draws a replacement
+    expect(deltasOf(g)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('贴杠 not made in the turn the 4th tile was drawn → no payment', () => {
+    const g = setupPlay({
+      hands: ['123m 456m 789m 11s 23s 9p', JUNK, JUNK, JUNK],
+      wall: '7s 8s 9s 1s',
+    });
+    const p0 = g.players[0];
+    p0.hand = T('5s 123m 456m 789m 9s'); // the 5s has been sitting in hand
+    p0.melds = [{ kind: 'pung', tile: t1('5s'), from: 2 }];
+    p0.turnDraws = [t1('9s')];
+    const h = act(g, 0, { type: 'kong', tile: t1('5s') });
+    const kong = h.settlements.find((s) => s.kind === 'kong')!;
+    expect(kong).toMatchObject({ unpaid: 'late-added-kong', payments: [] });
+    expect(h.players[0].melds[0].kind).toBe('kong-added');
+  });
+
+  it('an unpaid kong still counts as a root, and transfers nothing on 杠上炮', () => {
+    const g = setupPlay({
+      hands: ['123m 456m 789m 11s 23s 9p', '123m 456m 789m 123s 9s', JUNK, JUNK],
+      wall: '7s 8s 9s',
+    });
+    const p0 = g.players[0];
+    p0.hand = T('5s 123m 456m 789m 9s');
+    p0.melds = [{ kind: 'pung', tile: t1('5s'), from: 2 }];
+    let h = act(g, 0, { type: 'kong', tile: t1('5s') });
+    h = act(h, 0, { type: 'discard', tile: t1('9s') });
+    h = act(h, 1, { type: 'hu' });
+    expect(h.settlements.map((s) => s.kind)).toEqual(['kong', 'dianpao']);
+    expect(h.players[1].won!.fan.items.map((i) => i.key)).toContain('gangshangpao');
+  });
+
+  it('can be switched off', () => {
+    const g = setupPlay({
+      hands: ['123m 456m 789m 11s 23s 9p', JUNK, JUNK, JUNK],
+      wall: '7s 8s 9s 1s',
+      rules: { strictAddedKongPay: false },
+    });
+    const p0 = g.players[0];
+    p0.hand = T('5s 123m 456m 789m 9s');
+    p0.melds = [{ kind: 'pung', tile: t1('5s'), from: 2, heldFourth: true }];
+    const h = act(g, 0, { type: 'kong', tile: t1('5s') });
+    expect(deltasOf(h)).toEqual([3, -1, -1, -1]);
   });
 });

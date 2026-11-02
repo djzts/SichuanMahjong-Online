@@ -16,6 +16,7 @@ import type { ClientView } from '../engine/view';
 import { RoomController } from '../net/controller';
 import { PeerClient, PeerHost, type HostStatus } from '../net/peer';
 import { saveHostRoom } from '../net/storage';
+import { S } from './i18n';
 
 export interface SessionStatus {
   kind: 'ok' | 'connecting' | 'warning' | 'fatal';
@@ -153,13 +154,13 @@ export class LocalSession implements Session {
       case 'open':
         return { kind: 'ok', text: '' };
       case 'opening':
-        return { kind: 'connecting', text: '正在连接信令服务器…' };
+        return { kind: 'connecting', text: S.net.opening };
       case 'id-taken':
-        return { kind: 'warning', text: '房间号暂时被占用（刚刷新过？），正在重试…' };
+        return { kind: 'warning', text: S.net.idTaken };
       case 'signal-lost':
-        return { kind: 'warning', text: '与信令服务器断开，正在重连（已连上的玩家不受影响）…' };
+        return { kind: 'warning', text: S.net.signalLost };
       default:
-        return { kind: 'warning', text: `联网出错：${this.peerHost.detail}` };
+        return { kind: 'warning', text: S.net.netError(this.peerHost.detail) };
     }
   }
 
@@ -218,27 +219,22 @@ export class RemoteSession implements Session {
       case 'connected':
         return {
           kind: 'ok',
-          text: this.client.note === 'seats-full' ? '座位已满，已进入观战' : '',
+          text: this.client.note === 'seats-full' ? S.net.seatsFull : '',
         };
       case 'connecting':
-        return { kind: 'connecting', text: '正在连接房主…' };
+        return { kind: 'connecting', text: S.net.connecting };
       case 'not-found':
-        return { kind: 'connecting', text: '找不到这个房间（房主还没开房或已离线），正在重试…' };
+        return { kind: 'connecting', text: S.net.notFound };
       case 'host-lost':
-        return { kind: 'warning', text: '房主已断开，游戏暂停，正在重连…' };
+        return { kind: 'warning', text: S.net.hostLost };
       case 'signal-error':
         return {
           kind: 'connecting',
-          text: `连接信令服务器失败，正在重试… ${this.client.lastError}`,
+          text: S.net.signalError(this.client.lastError),
         };
       case 'rejected': {
         const r = this.client.rejectReason;
-        const text =
-          r === 'full'
-            ? '房间已满'
-            : r === 'version'
-              ? '版本不一致，请刷新页面后再试'
-              : '你已被房主移出房间';
+        const text = r === 'full' ? S.net.full : r === 'version' ? S.net.version : S.net.kicked;
         return { kind: 'fatal', text };
       }
     }

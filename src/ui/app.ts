@@ -2,12 +2,13 @@
 import type { Action } from '../engine/game';
 import { makeRules } from '../engine/rules';
 import { createRoom, PLAYER_COUNTS, type PlayerCount, type Role } from '../engine/room';
-import { suitOf, type Suit, type Tile } from '../engine/tiles';
+import { suitOf, type Suit } from '../engine/tiles';
 import type { ClientView, GameView, MeldView, SettlementView } from '../engine/view';
 import { getName, getPlayerId, lastHostCode, loadHostRoom, setName } from '../net/storage';
 import { LocalSession, randomRoomCode, RemoteSession, type Session } from './session';
-import { S } from './strings';
-import { tileFaceSvg } from './tileArt';
+import { displayName, lang, S, setLang } from './i18n';
+import { renderRulesPage } from './rulesPage';
+import { backHtml, tileHtml } from './tileArt';
 
 /** Single-player preview build (no online play), e.g. for hosts that block WebRTC. */
 const SOLO_ONLY = import.meta.env.VITE_SOLO_ONLY === '1';
@@ -47,12 +48,17 @@ const esc = (s: string) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
   );
 
-function tileHtml(t: Tile, cls = '', attrs = ''): string {
-  return `<div class="tile ${cls}" ${attrs}>${tileFaceSvg(t)}</div>`;
-}
+/** A player's name, escaped, with bot names shown in the current language. */
+const nm = (name: string) => esc(displayName(name));
+/** Parenthesised note in the current language's punctuation. */
+const paren = (x: string) => (lang === 'en' ? ` (${x})` : `（${x}）`);
+const listSep = () => (lang === 'en' ? ', ' : '、');
 
-function backHtml(cls = ''): string {
-  return `<div class="tile back ${cls}"></div>`;
+/** Language switch, plus the Rules page button in English. */
+function langButtons(): string {
+  const rules =
+    lang === 'en' ? `<button class="btn small" data-act="rules">${S.rulesPage}</button>` : '';
+  return `<button class="btn small ghost" data-act="lang" lang="${lang === 'en' ? 'zh-CN' : 'en'}">${S.langToggle}</button>${rules}`;
 }
 
 function meldHtml(m: MeldView, cls: string): string {
@@ -82,6 +88,7 @@ interface UIState {
   showLog: boolean;
   dialog: Dialog | null;
   boardOpen: boolean;
+  showRules: boolean;
   soloCount: PlayerCount;
   hideResult: boolean;
   deadlineAt: number | null;
@@ -127,6 +134,7 @@ export class App {
       showLog: false,
       dialog: null,
       boardOpen: true,
+      showRules: false,
       soloCount: this.ui?.soloCount ?? 4,
       hideResult: false,
       deadlineAt: null,
@@ -166,7 +174,11 @@ export class App {
         break;
       case 'solo':
         this.setSession(`solo:${r.debug}:${r.seed ?? ''}:${r.n}`, () =>
-          LocalSession.solo(name || '我', pid, { debug: r.debug, seed: r.seed, playerCount: r.n }),
+          LocalSession.solo(name || (lang === 'en' ? 'Me' : '我'), pid, {
+            debug: r.debug,
+            seed: r.seed,
+            playerCount: r.n,
+          }),
         );
         break;
       case 'host':
@@ -227,7 +239,8 @@ export class App {
           html = `<div class="banner ${status.kind}">${esc(status.text)}</div>` + html;
       }
     }
-    this.screen.innerHTML = html + this.renderDialog();
+    const rules = this.ui.showRules && lang === 'en' ? renderRulesPage() : '';
+    this.screen.innerHTML = html + rules + this.renderDialog();
     const v = s?.view();
     if (v?.game) this.showEventToasts(v);
   }
@@ -238,6 +251,7 @@ export class App {
     return `
     <div class="home">
       <div class="home-card">
+        <div class="card-top">${langButtons()}</div>
         <div class="logo">${tileHtml(4, 'logo-tile')}${tileHtml(13, 'logo-tile')}${tileHtml(22, 'logo-tile')}</div>
         <h1>${S.appTitle}</h1>
         <p class="tagline">${S.tagline}</p>
@@ -317,7 +331,7 @@ export class App {
         let body: string;
         if (m.kind === 'empty') body = `<div class="seat-name empty">${S.emptySeat}</div>`;
         else
-          body = `<div class="seat-name">${esc(m.name)}${me ? '（我）' : ''}</div>
+          body = `<div class="seat-name">${nm(m.name)}${me ? S.meSuffix : ''}</div>
           <div class="seat-tags">${i === 0 ? `<span class="chip host">${S.hostTag}</span>` : ''}${m.kind === 'ai' ? `<span class="chip">${S.ai}</span>` : ''}${m.kind === 'human' && !m.connected ? `<span class="chip warn">${S.offline}</span>` : ''}</div>`;
         const first =
           n > 4
@@ -337,7 +351,7 @@ export class App {
     for (let i = 0; i < v.spectatorSlots; i++) {
       const sp = v.spectators[i];
       specs.push(
-        `<div class="spec-slot">${sp ? esc(sp.name) + (sp.connected ? '' : `（${S.offline}）`) : `<span class="muted">${S.emptySeat}</span>`}
+        `<div class="spec-slot">${sp ? nm(sp.name) + (sp.connected ? '' : paren(S.offline)) : `<span class="muted">${S.emptySeat}</span>`}
         ${host && sp ? `<button class="btn small" data-act="kick" data-index="${i}">${S.kick}</button>` : ''}</div>`,
       );
     }
@@ -360,6 +374,7 @@ export class App {
       <div class="lobby-head">
         <div><div class="muted">${S.roomCode}</div><div class="code">${v.code}</div></div>
         <div class="row">
+          ${langButtons()}
           <button class="btn" data-act="copy" data-text="${esc(this.inviteLink(v.code, false))}">${S.copyInvite}</button>
           <button class="btn" data-act="copy" data-text="${esc(this.inviteLink(v.code, true))}">${S.copyWatch}</button>
           <button class="btn ghost" data-act="leave">${S.leave}</button>
@@ -371,7 +386,7 @@ export class App {
         <p class="hint">${S.modeRule[n]}</p>
       </div>
       <div class="lobby-seats n${n}">${seats}</div>
-      <h3>${S.spectators}（${v.spectators.length}/${v.spectatorSlots}）<span class="muted small-note">${S.spectatorVsBench}</span></h3>
+      <h3>${S.spectators}${paren(`${v.spectators.length}/${v.spectatorSlots}`)}<span class="muted small-note">${S.spectatorVsBench}</span></h3>
       <div class="spec-slots">${specs.join('')}</div>
       <div class="lobby-foot">${bottom}</div>
       <details class="rules"><summary>${S.rulesTitle}</summary><ul>${S.rulesBody.map((l) => `<li>${l}</li>`).join('')}</ul></details>
@@ -387,7 +402,7 @@ export class App {
       .map(
         (m, rank) => `<li class="${m.status} ${v.myMember === m.i ? 'me' : ''}">
           <span class="rk">${rank + 1}</span>
-          <span class="nm">${esc(m.name)}</span>
+          <span class="nm">${nm(m.name)}</span>
           ${m.status === 'bench' ? `<span class="tag">${S.benchShort}</span>` : ''}
           <b class="${deltaCls(m.total)}">${signed(m.total)}</b>
           ${m.handDelta ? `<small class="${deltaCls(m.handDelta)}">${signed(m.handDelta)}</small>` : ''}
@@ -411,7 +426,7 @@ export class App {
     const chips: string[] = [];
     if (p.isDealer) chips.push(`<span class="chip dealer">${S.dealer}</span>`);
     if (p.voidSuit !== undefined && p.voidSuit !== null)
-      chips.push(`<span class="chip void">缺${S.suits[p.voidSuit]}</span>`);
+      chips.push(`<span class="chip void">${S.voidChip(S.suitsShort[p.voidSuit])}</span>`);
     if (p.won) chips.push(`<span class="chip won">${S.won(p.won.order, p.won.selfDraw)}</span>`);
     if (p.ready) chips.push(`<span class="chip ok">${S.ready}</span>`);
     if (info.kind === 'ai') chips.push(`<span class="chip">${S.ai}</span>`);
@@ -420,7 +435,7 @@ export class App {
     const turn = g.turn === seat && g.phase === 'play';
     const waiting = g.waiting.includes(seat);
     return `<div class="plate ${turn ? 'turn' : ''} ${waiting ? 'waiting' : ''}">
-      <span class="nm">${esc(info.name)}</span>
+      <span class="nm">${nm(info.name)}</span>
       <span class="score ${deltaCls(info.total)}">${signed(info.total)}</span>
       <span class="chips">${chips.join('')}</span>
     </div>`;
@@ -478,8 +493,8 @@ export class App {
       <div class="info-line">${S.hand(v.handNo)} · ${S.wall(g.wallCount)}</div>
       ${g.exchangeDir && g.phase !== 'ended' ? `<div class="info-line small">${S.exchangeDir[g.exchangeDir]}</div>` : ''}
       <div class="countdown" id="countdown"></div>
-      <div class="info-line small">${turnSeat !== null && g.phase === 'play' ? `▶ ${esc(v.seats[turnSeat].name)}` : ''}</div>
-      ${v.spectators.length ? `<div class="info-line small muted">👁 ${v.spectators.map((x) => esc(x.name)).join('、')}</div>` : ''}
+      <div class="info-line small">${turnSeat !== null && g.phase === 'play' ? `▶ ${nm(v.seats[turnSeat].name)}` : ''}</div>
+      ${v.spectators.length ? `<div class="info-line small muted">${S.spectatorsLine(v.spectators.map((x) => nm(x.name)).join(listSep()))}</div>` : ''}
     </div>`;
 
     const bottomSeat = seatAt(0);
@@ -495,10 +510,11 @@ export class App {
         ? `<button class="btn small primary" data-act="show-result">${S.viewResult}</button>`
         : '';
     const top = `<div class="topbar">
-      <span class="muted">${v.code === 'solo' ? '单机' : `${S.roomCode} ${v.code}`}</span>
+      <span class="muted">${v.code === 'solo' ? S.soloTag : `${S.roomCode} ${v.code}`}</span>
       ${roleChip}
       ${me ? '' : `<button class="btn small" data-act="rotate">${S.rotate}</button>`}
       <button class="btn small" data-act="log">${S.log}</button>
+      ${langButtons()}
       <button class="btn small ghost" data-act="leave">${S.leave}</button>
       ${peek}
     </div>`;
@@ -631,13 +647,19 @@ export class App {
       if (legal.selfHu) parts.push(btn('hu', S.zimo, 'hu'));
       for (const t of legal.kongs ?? [])
         parts.push(
-          btn('kong', `${S.kong}${tileHtml(t, 'inline-tile')}`, 'kong', `data-tile="${t}"`),
+          btn(
+            'kong',
+            `${S.kong}${tileHtml(t, 'inline-tile')}${legal.unpaidKongs?.includes(t) ? `<small>${S.kongNoPay}</small>` : ''}`,
+            'kong',
+            `data-tile="${t}"`,
+          ),
         );
       const voidLeft = me.voidSuit !== null && me.hand.some((t) => suitOf(t) === me.voidSuit);
       hint = voidLeft ? S.mustVoid : S.yourTurn;
     } else if (g.phase === 'play' && g.turn !== null) {
       const waiting = g.waiting.filter((s) => s !== v.mySeat);
-      if (waiting.length) hint = S.waitingFor(waiting.map((s) => v.seats[s].name).join('、'));
+      if (waiting.length)
+        hint = S.waitingFor(waiting.map((s) => displayName(v.seats[s].name)).join(listSep()));
     }
     if (me.huLocked && g.phase === 'play') hint = (hint ? hint + ' · ' : '') + S.huLocked;
     const err = this.session?.lastError();
@@ -646,7 +668,7 @@ export class App {
 
   private settlementLabel(v: ClientView, s: SettlementView): string {
     const n = (seat: number | null | undefined) =>
-      seat === null || seat === undefined ? '' : esc(v.seats[seat].name);
+      seat === null || seat === undefined ? '' : nm(v.seats[seat].name);
     let label: string;
     switch (s.kind) {
       case 'zimo':
@@ -659,10 +681,12 @@ export class App {
         label = S.settle.qianggang(n(s.seat), n(s.from));
         break;
       case 'kong':
-        label = S.settle.kong(n(s.seat), s.meldKind ? S.meldName[s.meldKind] : S.kong);
+        label =
+          S.settle.kong(n(s.seat), s.meldKind ? S.meldName[s.meldKind] : S.kong) +
+          (s.unpaid ? paren(S.kongUnpaid[s.unpaid]) : '');
         break;
       case 'transfer':
-        label = S.settle.transfer(n(s.seat));
+        label = S.settle.transfer(n(s.seat), n(s.deltas.findIndex((d) => d > 0)));
         break;
       case 'huazhu':
         label = S.settle.huazhu(n(s.seat));
@@ -676,7 +700,11 @@ export class App {
     }
     let fan = '';
     if (s.fan) {
-      fan = `<div class="fan">${s.fan.items.map((i) => `${i.name}${i.fan ? ` ${i.fan}` : ''}`).join(' · ')} ＝ <b>${s.fan.fan}${S.fanUnit}</b>${s.fan.capped ? `（${S.capped}）` : ''}</div>`;
+      const items = s.fan.items.map(
+        (i) =>
+          `${S.fanNames[i.key] ?? i.key}${i.count && i.count > 1 ? `×${i.count}` : ''}${i.fan ? ` ${i.fan}` : ''}`,
+      );
+      fan = `<div class="fan">${items.join(' · ')} = <b>${s.fan.fan}${S.fanUnit}</b>${s.fan.capped ? paren(S.capped) : ''}</div>`;
     }
     const tile = s.tile !== undefined ? tileHtml(s.tile, 'inline-tile') : '';
     return `<div class="s-label">${label} ${tile}${fan}</div>`;
@@ -685,7 +713,7 @@ export class App {
   private deltaRow(v: ClientView, deltas: number[]): string {
     return `<div class="deltas">${deltas
       .map(
-        (d, i) => `<span class="${deltaCls(d)}"><i>${esc(v.seats[i].name)}</i>${signed(d)}</span>`,
+        (d, i) => `<span class="${deltaCls(d)}"><i>${nm(v.seats[i].name)}</i>${signed(d)}</span>`,
       )
       .join('')}</div>`;
   }
@@ -731,7 +759,7 @@ export class App {
     return `<div class="deltas members n${v.playerCount}">${v.members
       .map(
         (m) =>
-          `<span class="${deltaCls(m.total)} ${m.status}"><i>${esc(m.name)}</i>${signed(m.total)}</span>`,
+          `<span class="${deltaCls(m.total)} ${m.status}"><i>${nm(m.name)}</i>${signed(m.total)}</span>`,
       )
       .join('')}</div>`;
   }
@@ -739,7 +767,7 @@ export class App {
   private renderRotation(v: ClientView): string {
     const r = v.rotation;
     if (!r) return '';
-    const name = (m: number) => esc(v.members[m].name);
+    const name = (m: number) => nm(v.members[m].name);
     const lines: string[] = [];
     if (r.stayer) lines.push(S.stayLine(name(r.stayer.member), r.stayer.reason));
     for (const o of r.out) lines.push(S.outLine(name(o.member), S.outReason[o.reason]));
@@ -756,9 +784,9 @@ export class App {
       .sort((a, b) => b.total - a.total || a.no - b.no);
     return `<div class="home"><div class="home-card final">
       <h1>${S.final}</h1>
-      <ol class="ranking">${ranking.map((r) => `<li><span>${esc(r.name)}</span><b class="${deltaCls(r.total)}">${signed(r.total)}</b></li>`).join('')}</ol>
+      <ol class="ranking">${ranking.map((r) => `<li><span>${nm(r.name)}</span><b class="${deltaCls(r.total)}">${signed(r.total)}</b></li>`).join('')}</ol>
       <h3>${S.history}</h3>
-      <div class="history-wrap"><table class="history"><tr><th></th>${v.members.map((m) => `<th>${esc(m.name)}</th>`).join('')}</tr>
+      <div class="history-wrap"><table class="history"><tr><th></th>${v.members.map((m) => `<th>${nm(m.name)}</th>`).join('')}</tr>
       ${v.history
         .map(
           (h) =>
@@ -925,6 +953,21 @@ export class App {
       }
       case 'count':
         s?.host?.setPlayerCount(Number(el.dataset.n) as PlayerCount);
+        break;
+      case 'lang': {
+        const input = this.screen.querySelector<HTMLInputElement>('#name');
+        if (input) setName(input.value.trim().slice(0, 12));
+        setLang(lang === 'en' ? 'zh' : 'en');
+        this.render();
+        break;
+      }
+      case 'rules':
+        this.ui.showRules = true;
+        this.render();
+        break;
+      case 'rules-close':
+        this.ui.showRules = false;
+        this.render();
         break;
       case 'board':
         this.ui.boardOpen = !this.ui.boardOpen;

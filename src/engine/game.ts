@@ -40,8 +40,16 @@ export interface Settlement {
   tile?: Tile;
   meldKind?: MeldKind;
   fan?: FanResult;
+  /** A kong that still counts as a kong but collects nothing, and why. */
+  unpaid?: KongUnpaidReason;
   payments: Payment[];
 }
+
+/**
+ * - pung-then-kong: 先碰后杠 — punged while holding a concealed triplet, konged later.
+ * - late-added-kong: 贴杠没有当轮贴 — the 4th tile was not drawn in the turn it was added.
+ */
+export type KongUnpaidReason = 'pung-then-kong' | 'late-added-kong';
 
 export interface PlayerState {
   hand: Tile[];
@@ -55,6 +63,8 @@ export interface PlayerState {
   draws: number;
   /** Kong payments received this hand (for 退税). */
   kongIncome: Payment[];
+  /** Tiles drawn during the current turn (regular draw + kong replacements). */
+  turnDraws: Tile[];
 }
 
 export interface ClaimOptions {
@@ -153,6 +163,7 @@ function emptyPlayer(hand: Tile[]): PlayerState {
     drawn: null,
     draws: 0,
     kongIncome: [],
+    turnDraws: [],
   };
 }
 
@@ -228,6 +239,7 @@ function cloneState(s: GameState): GameState {
       discards: [...p.discards],
       exchangePick: p.exchangePick ? [...p.exchangePick] : null,
       kongIncome: [...p.kongIncome],
+      turnDraws: [...p.turnDraws],
     })),
     step: cloneStep(s.step),
     winOrder: [...s.winOrder],
@@ -347,11 +359,34 @@ function kongPayments(state: GameState, seat: number, kind: MeldKind, from?: num
   return pays;
 }
 
-function settleKong(state: GameState, seat: number, kind: MeldKind, tile: Tile, from?: number) {
-  const payments = kongPayments(state, seat, kind, from);
+function settleKong(
+  state: GameState,
+  seat: number,
+  kind: MeldKind,
+  tile: Tile,
+  from?: number,
+  unpaid?: KongUnpaidReason,
+) {
+  const payments = unpaid ? [] : kongPayments(state, seat, kind, from);
   state.players[seat].kongIncome.push(...payments);
   state.lastKong = { seat, payments };
-  addSettlement(state, { kind: 'kong', seat, from: from ?? null, tile, meldKind: kind, payments });
+  const s: Settlement = { kind: 'kong', seat, from: from ?? null, tile, meldKind: kind, payments };
+  if (unpaid) s.unpaid = unpaid;
+  addSettlement(state, s);
+}
+
+/** Why an added kong on `tile` would collect nothing right now (null = it gets paid). */
+export function addedKongUnpaid(
+  state: GameState,
+  p: PlayerState,
+  tile: Tile,
+): KongUnpaidReason | null {
+  if (!state.rules.strictAddedKongPay) return null;
+  const meld = p.melds.find((m) => m.kind === 'pung' && m.tile === tile);
+  if (!meld) return null;
+  if (meld.heldFourth) return 'pung-then-kong';
+  if (!p.turnDraws.includes(tile)) return 'late-added-kong';
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,9 +396,12 @@ function startAct(state: GameState, seat: number, drew: boolean, afterKong: bool
   state.step = { kind: 'act', seat, drew, afterKong };
 }
 
-function drawFor(state: GameState, seat: number, fromTail: boolean): void {
+/** `newTurn`: this draw starts the player's turn (regular draw, or replacement after 明杠). */
+function drawFor(state: GameState, seat: number, fromTail: boolean, newTurn: boolean): void {
   const tile = fromTail ? state.wall.pop()! : state.wall.shift()!;
   const p = state.players[seat];
+  if (newTurn) p.turnDraws = [];
+  p.turnDraws.push(tile);
   insertSorted(p.hand, tile);
   p.drawn = tile;
   p.draws++;
@@ -374,7 +412,7 @@ function drawFor(state: GameState, seat: number, fromTail: boolean): void {
 function nextTurn(state: GameState, seat: number): void {
   if (seat < 0) return endHand(state, 'three-won');
   if (state.wall.length === 0) return endHand(state, 'wall-exhausted');
-  drawFor(state, seat, false);
+  drawFor(state, seat, false, true);
 }
 
 function afterWin(state: GameState, lastWinner: number): void {
@@ -533,11 +571,15 @@ function tryResolveClaim(state: GameState): void {
     p.melds.push({ kind: 'kong-exposed', tile, from });
     emit(state, { seat: claimer, kind: 'kong', tile, meldKind: 'kong-exposed' });
     settleKong(state, claimer, 'kong-exposed', tile, from);
-    drawFor(state, claimer, true);
+    drawFor(state, claimer, true, true);
   } else {
+    const heldFourth = countTile(p.hand, tile) === 3;
     removeTiles(p.hand, tile, 2);
-    p.melds.push({ kind: 'pung', tile, from });
+    p.melds.push(
+      heldFourth ? { kind: 'pung', tile, from, heldFourth } : { kind: 'pung', tile, from },
+    );
     p.drawn = null;
+    p.turnDraws = [];
     state.lastKong = null;
     emit(state, { seat: claimer, kind: 'pung', tile });
     startAct(state, claimer, false, false);
@@ -578,10 +620,11 @@ function tryResolveRob(state: GameState): void {
 function completeAddedKong(state: GameState, seat: number, tile: Tile): void {
   const p = state.players[seat];
   const meld = p.melds.find((m) => m.kind === 'pung' && m.tile === tile)!;
+  const unpaid = addedKongUnpaid(state, p, tile) ?? undefined;
   meld.kind = 'kong-added';
   emit(state, { seat, kind: 'kong', tile, meldKind: 'kong-added' });
-  settleKong(state, seat, 'kong-added', tile);
-  drawFor(state, seat, true);
+  settleKong(state, seat, 'kong-added', tile, undefined, unpaid);
+  drawFor(state, seat, true, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -695,7 +738,7 @@ export function applyAction(input: GameState, seat: number, action: Action): Act
           p.melds.push({ kind: 'kong-concealed', tile });
           emit(state, { seat, kind: 'kong', meldKind: 'kong-concealed' });
           settleKong(state, seat, 'kong-concealed', tile);
-          drawFor(state, seat, true);
+          drawFor(state, seat, true, false);
         } else {
           removeTiles(p.hand, tile, 1);
           const options2 = robOptions(state, seat, tile);
@@ -747,6 +790,8 @@ export interface LegalActions {
   discard?: Tile[];
   selfHu?: boolean;
   kongs?: Tile[];
+  /** Subset of `kongs` that would count as a kong but collect nothing. */
+  unpaidKongs?: Tile[];
   claim?: { tile: Tile; hu: boolean; pung: boolean; kong: boolean };
   rob?: { tile: Tile };
 }
@@ -766,6 +811,9 @@ export function legalActions(state: GameState, seat: number): LegalActions {
         discard: discardableTiles(p),
         selfHu: step.drew && canSelfDrawWin(p),
         kongs: step.drew ? selfKongTiles(state, p) : [],
+        unpaidKongs: step.drew
+          ? selfKongTiles(state, p).filter((t) => addedKongUnpaid(state, p, t) !== null)
+          : [],
       };
     case 'claim': {
       const o = step.options[seat];
