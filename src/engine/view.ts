@@ -2,8 +2,9 @@
  * viewFor: the ONLY way game data leaves the host. Builds what one recipient may see.
  *
  * - A player sees their own hand plus public info about the others.
- * - A spectator sees the discard piles and tile-free status only (plus whatever the
- *   rules.spectator.visible switches allow). Hands are never included for spectators.
+ * - A spectator (观战者) and a member sitting the hand out (临时观察者) see the discard piles
+ *   and tile-free status only (plus whatever rules.spectator.visible allows). Hands are never
+ *   included for them.
  */
 import { FAN_EXTRA_NAMES } from './fan';
 import {
@@ -20,20 +21,55 @@ import {
   type Settlement,
   type SettlementKind,
 } from './game';
-import type { RoomPhase, RoomState } from './room';
+import {
+  seatOfMember,
+  type BenchReason,
+  type PlayerCount,
+  type RoomPhase,
+  type RoomState,
+} from './room';
 import { FAN_NAMES } from './rules';
 import type { Suit, Tile } from './tiles';
 import type { MeldKind } from './types';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
-export type Viewer = { kind: 'player'; seat: number; debugAll?: boolean } | { kind: 'spectator' };
+/** Who is looking at a hand: a player at the table, or someone who only watches. */
+export type GameViewer = { kind: 'player'; seat: number; debugAll?: boolean } | { kind: 'watcher' };
 
+/** Who is looking at the room: one of the members, or a spectator. */
+export type Viewer = { kind: 'member'; member: number; debugAll?: boolean } | { kind: 'spectator' };
+
+/** One of the 4 table seats in the current hand. */
 export interface SeatView {
   name: string;
   kind: 'human' | 'ai' | 'empty';
   connected: boolean;
+  /** Live running total (includes the current hand so far). */
   total: number;
+  member: number;
+}
+
+/** One of the 4–7 members of the session, for the scoreboard. */
+export interface MemberView {
+  /** 号位 (1-based). */
+  no: number;
+  name: string;
+  kind: 'human' | 'ai' | 'empty';
+  connected: boolean;
+  /** Live running total (includes the current hand so far). */
+  total: number;
+  /** Change in the current hand; null when not playing it. */
+  handDelta: number | null;
+  /** Game seat this hand, or null when sitting out. */
+  seat: number | null;
+  status: 'table' | 'bench' | 'empty';
+}
+
+export interface RotationView {
+  out: { member: number; reason: BenchReason }[];
+  in: { member: number; seat: number }[];
+  stayer?: { member: number; reason: 'first-winner' | 'draw-winner' };
 }
 
 export interface MeldView {
@@ -117,21 +153,28 @@ export interface GameView {
 
 export interface HandRecordView {
   handNo: number;
-  deltas: number[];
+  /** Per member; null for members who sat that hand out. */
+  deltas: (number | null)[];
 }
 
 export interface ClientView {
   v: number;
-  role: 'player' | 'spectator';
+  /** player = at the table this hand; bench = 临时观察者; spectator = 观战者. */
+  role: 'player' | 'bench' | 'spectator';
   mySeat: number | null;
+  myMember: number | null;
   code: string;
   phase: RoomPhase;
   handNo: number;
+  playerCount: PlayerCount;
   seats: SeatView[];
+  members: MemberView[];
   spectators: { name: string; connected: boolean }[];
   history: HandRecordView[];
   game: GameView | null;
   spectatorSlots: number;
+  /** Who sits out / comes in next hand (shown at the end of a hand). */
+  rotation: RotationView | null;
 }
 
 function fanView(s: Settlement): FanView | undefined {
@@ -163,9 +206,13 @@ function phaseOf(game: GameState): GameView['phase'] {
   }
 }
 
-function gameViewFor(game: GameState, viewer: Viewer, deadlineMs: number | null): GameView {
+export function gameViewFor(
+  game: GameState,
+  viewer: GameViewer,
+  deadlineMs: number | null = null,
+): GameView {
   const step = game.step;
-  const spectator = viewer.kind === 'spectator';
+  const spectator = viewer.kind === 'watcher';
   const vis = game.rules.spectator.visible;
   const mySeat = viewer.kind === 'player' ? viewer.seat : -1;
   const voidRevealed = step.kind !== 'exchange' && step.kind !== 'void';
@@ -268,22 +315,73 @@ export function viewFor(
   viewer: Viewer,
   deadlineMs: number | null = null,
 ): ClientView {
+  const inHand = room.phase === 'playing' || room.phase === 'handEnd';
+  const myMember = viewer.kind === 'member' ? viewer.member : null;
+  const mySeat = myMember !== null && inHand ? seatOfMember(room, myMember) : -1;
+  const role: ClientView['role'] =
+    viewer.kind === 'spectator' ? 'spectator' : !inHand || mySeat >= 0 ? 'player' : 'bench';
+  const live = room.phase === 'playing' && room.game ? handDeltas(room.game) : null;
+  const liveTotal = (m: number) => {
+    const seat = seatOfMember(room, m);
+    return room.totals[m] + (live && seat >= 0 ? live[seat] : 0);
+  };
+  let game: GameView | null = null;
+  if (room.game && inHand)
+    game =
+      mySeat >= 0
+        ? gameViewFor(
+            room.game,
+            {
+              kind: 'player',
+              seat: mySeat,
+              debugAll: viewer.kind === 'member' && viewer.debugAll,
+            },
+            deadlineMs,
+          )
+        : gameViewFor(room.game, { kind: 'watcher' }, deadlineMs);
+  const rot = room.phase === 'handEnd' ? room.nextRotation : null;
   return {
     v: PROTOCOL_VERSION,
-    role: viewer.kind === 'player' ? 'player' : 'spectator',
-    mySeat: viewer.kind === 'player' ? viewer.seat : null,
+    role,
+    mySeat: mySeat >= 0 ? mySeat : null,
+    myMember,
     code: room.code,
     phase: room.phase,
     handNo: room.handNo,
-    seats: room.seats.map((s, i) => ({
-      name: s?.name ?? '',
-      kind: s ? s.kind : 'empty',
-      connected: s ? s.connected : false,
-      total: room.totals[i],
-    })),
+    playerCount: room.playerCount,
+    seats: room.table.map((m) => {
+      const s = room.members[m];
+      return {
+        name: s?.name ?? '',
+        kind: s ? s.kind : 'empty',
+        connected: s ? s.connected : false,
+        total: liveTotal(m),
+        member: m,
+      };
+    }),
+    members: room.members.map((s, m) => {
+      const seat = seatOfMember(room, m);
+      return {
+        no: m + 1,
+        name: s?.name ?? '',
+        kind: s ? s.kind : 'empty',
+        connected: s ? s.connected : false,
+        total: liveTotal(m),
+        handDelta: live && seat >= 0 ? live[seat] : null,
+        seat: seat >= 0 ? seat : null,
+        status: !s ? 'empty' : seat >= 0 ? 'table' : 'bench',
+      };
+    }),
     spectators: room.spectators.map((s) => ({ name: s.name, connected: s.connected })),
     history: room.history.map((h) => ({ handNo: h.handNo, deltas: [...h.deltas] })),
-    game: room.game ? gameViewFor(room.game, viewer, deadlineMs) : null,
+    game,
     spectatorSlots: room.rules.spectator.slots,
+    rotation: rot
+      ? {
+          out: rot.out.map((o) => ({ member: o.member, reason: o.reason })),
+          in: rot.in.map((i) => ({ member: i.member, seat: i.seat })),
+          ...(rot.stayer ? { stayer: { ...rot.stayer } } : {}),
+        }
+      : null,
   };
 }

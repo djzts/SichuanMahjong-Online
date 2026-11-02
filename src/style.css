@@ -15,6 +15,8 @@
   --tile-edge: #c9bea0;
   --tile-back: #1c8a59;
   --tile-back-2: #11613e;
+  --bench: #7e4bc4;
+  --watch: #2d4f8a;
 
   /* Tile sizes scale with the viewport (landscape first). */
   --tw: min(6.1vw, 10.2vh, 64px);
@@ -132,6 +134,12 @@ button {
 .btn.big {
   padding: 14px 36px;
   font-size: 18px;
+}
+
+.btn.on {
+  background: var(--gold);
+  color: #3a2600;
+  border-color: #b58517;
 }
 
 .btn.wide {
@@ -446,7 +454,7 @@ input:focus {
   align-items: flex-start;
 }
 
-.lobby-seat.mine {
+.lobby-seat.is-me {
   border-color: var(--gold);
 }
 
@@ -539,7 +547,16 @@ h3 {
 }
 
 .chip.watch {
-  background: #2d4f8a;
+  background: var(--watch);
+}
+
+.chip.bench {
+  background: var(--bench);
+}
+
+.chip.on {
+  background: var(--gold);
+  color: #3a2600;
 }
 
 /* ---------- Banner ---------- */
@@ -927,13 +944,6 @@ h3 {
   align-items: center;
 }
 
-.peek {
-  position: absolute;
-  right: max(8px, env(safe-area-inset-right));
-  top: max(8px, env(safe-area-inset-top));
-  z-index: 20;
-}
-
 /* ---------- Modal ---------- */
 
 .modal-bg {
@@ -1155,6 +1165,16 @@ h3 {
     grid-template-columns: minmax(54px, 17%) 1fr minmax(54px, 17%);
   }
 
+  .table {
+    grid-template-rows: auto auto auto 1fr auto;
+    grid-template-areas:
+      'bar bar bar'
+      'board board board'
+      'top top top'
+      'left center right'
+      'mine mine mine';
+  }
+
   .topbar {
     position: static;
     grid-area: bar;
@@ -1271,4 +1291,230 @@ h3 {
 
 .hint.center {
   text-align: center;
+}
+
+/* ---------- Player count & rotation ---------- */
+
+.count-picker {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+}
+
+.mode {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.mode .count-picker {
+  justify-content: flex-start;
+}
+
+.mode .hint {
+  max-width: 62ch;
+  line-height: 1.5;
+}
+
+.lobby-seats.n5,
+.lobby-seats.n6,
+.lobby-seats.n7 {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.small-note {
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 8px;
+}
+
+.rotation {
+  background: rgba(126, 75, 196, 0.18);
+  border: 1px solid rgba(126, 75, 196, 0.5);
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.rotation h3 {
+  margin: 0;
+  color: #d9c2ff;
+}
+
+.rotation ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  line-height: 1.7;
+  font-size: 14px;
+}
+
+.deltas.members {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+
+.deltas.members .bench i {
+  color: #c9a8f5;
+}
+
+.history-wrap {
+  overflow-x: auto;
+}
+
+/* ---------- Scoreboard ---------- */
+
+.scoreboard {
+  /* Shares the top row with the opposite player, pinned to the right. */
+  grid-area: top;
+  justify-self: end;
+  align-self: start;
+  z-index: 9;
+  display: flex;
+  align-items: stretch;
+  max-width: min(270px, 34vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.sb-head {
+  appearance: none;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 12px;
+  writing-mode: vertical-rl;
+  letter-spacing: 2px;
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 3px;
+  cursor: pointer;
+}
+
+.sb-head:focus-visible,
+.btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.scoreboard ol {
+  list-style: none;
+  margin: 0;
+  padding: 4px 6px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(4, auto);
+  column-gap: 10px;
+  min-width: 0;
+}
+
+.scoreboard.closed ol {
+  display: none;
+}
+
+.scoreboard li {
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+  padding: 1px 3px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.scoreboard li.me {
+  background: rgba(242, 193, 78, 0.16);
+}
+
+.scoreboard li.bench .nm {
+  color: var(--muted);
+}
+
+.scoreboard .rk {
+  color: var(--muted);
+  min-width: 1em;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreboard .nm {
+  flex: 1;
+  min-width: 0;
+  max-width: 6em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-height: 700px) and (orientation: landscape) {
+  .scoreboard {
+    font-size: 13px;
+  }
+}
+
+.scoreboard .tag {
+  font-size: 10px;
+  background: var(--bench);
+  color: #fff;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+.scoreboard b {
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreboard small {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .countdown.urgent,
+  .btn.act.hu {
+    animation: none;
+  }
+}
+
+/* Portrait: the scoreboard becomes a strip under the top bar (after the base rules above). */
+@media (orientation: portrait) {
+  .scoreboard {
+    grid-area: board;
+    justify-self: stretch;
+    max-width: none;
+    align-items: center;
+  }
+
+  .sb-head {
+    writing-mode: horizontal-tb;
+    border-right: 0;
+    flex: 0 0 auto;
+    padding: 4px 8px;
+  }
+
+  .scoreboard ol {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 4px 6px;
+    flex: 1;
+  }
+
+  .scoreboard li {
+    flex: 0 0 auto;
+  }
+
+  .scoreboard li .nm {
+    max-width: 4.5em;
+  }
+
+  .deltas {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }

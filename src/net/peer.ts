@@ -129,7 +129,7 @@ export class PeerHost {
         }
         info.playerId = msg.playerId;
         this.byPlayer.set(msg.playerId, conn);
-        this.send(conn, { t: 'welcome', role: res.role, seat: res.seat, note: res.note });
+        this.send(conn, { t: 'welcome', role: res.role, member: res.member, note: res.note });
         const view = this.controller.viewFor(msg.playerId);
         if (view) this.send(conn, { t: 'state', view });
         break;

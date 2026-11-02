@@ -15,7 +15,7 @@ export type ClientMsg =
 export type RejectReason = 'full' | 'version' | 'kicked';
 
 export type HostMsg =
-  | { t: 'welcome'; role: Role; seat: number | null; note?: string }
+  | { t: 'welcome'; role: Role; member: number | null; note?: string }
   | { t: 'state'; view: ClientView }
   | { t: 'reject'; reason: RejectReason }
   | { t: 'error'; message: string }

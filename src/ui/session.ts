@@ -4,7 +4,14 @@
  */
 import type { Action } from '../engine/game';
 import { makeRules, type Rules } from '../engine/rules';
-import { createRoom, fillWithAI, type Role, type RoomState } from '../engine/room';
+import {
+  canSetPlayerCount,
+  createRoom,
+  fillWithAI,
+  type PlayerCount,
+  type Role,
+  type RoomState,
+} from '../engine/room';
 import type { ClientView } from '../engine/view';
 import { RoomController } from '../net/controller';
 import { PeerClient, PeerHost, type HostStatus } from '../net/peer';
@@ -16,7 +23,9 @@ export interface SessionStatus {
 }
 
 export interface HostCommands {
-  setSeatAI(seat: number, ai: boolean): void;
+  setSeatAI(member: number, ai: boolean): void;
+  setPlayerCount(n: PlayerCount): void;
+  canSetPlayerCount(n: PlayerCount): boolean;
   kickSpectator(index: number): void;
   start(): void;
   endSession(): void;
@@ -81,7 +90,9 @@ export class LocalSession implements Session {
     }
     const c = this.controller;
     this.host = {
-      setSeatAI: (seat, ai) => c.setSeatAI(seat, ai),
+      setSeatAI: (member, ai) => c.setSeatAI(member, ai),
+      setPlayerCount: (n) => c.setPlayerCount(n),
+      canSetPlayerCount: (n) => canSetPlayerCount(c.room, n),
       kickSpectator: (index) => {
         const sp = c.room.spectators[index];
         if (sp) c.kickSpectator(sp.playerId);
@@ -96,10 +107,15 @@ export class LocalSession implements Session {
   static solo(
     name: string,
     hostId: string,
-    opts: { debug?: boolean; seed?: number; rules?: Rules },
+    opts: { debug?: boolean; seed?: number; rules?: Rules; playerCount?: PlayerCount },
   ) {
     const room = fillWithAI(
-      createRoom('solo', opts.rules ?? makeRules(), { playerId: hostId, name }),
+      createRoom(
+        'solo',
+        opts.rules ?? makeRules(),
+        { playerId: hostId, name },
+        opts.playerCount ?? 4,
+      ),
     );
     const s = new LocalSession(room, hostId, {
       online: false,

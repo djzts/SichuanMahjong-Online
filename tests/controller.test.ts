@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeRules } from '../src/engine/rules';
-import { createRoom, setSeatAI } from '../src/engine/room';
+import { createRoom, setSeatAI, type PlayerCount } from '../src/engine/room';
 import { RoomController } from '../src/net/controller';
 
-function room(humans: string[]) {
-  let r = createRoom('111111', makeRules(), { playerId: 'host', name: '房主' });
+function room(humans: string[], n: PlayerCount = 4) {
+  let r = createRoom('111111', makeRules(), { playerId: 'host', name: '房主' }, n);
   r = {
     ...r,
-    seats: r.seats.map((s, i) =>
+    members: r.members.map((s, i) =>
       i > 0 && i <= humans.length
         ? { kind: 'human' as const, playerId: humans[i - 1], name: humans[i - 1], connected: true }
         : s,
     ),
   };
-  for (let s = 1; s < 4; s++) r = setSeatAI(r, s, true);
+  for (let s = 1; s < n; s++) r = setSeatAI(r, s, true);
   return r;
 }
 
@@ -55,11 +55,25 @@ describe('RoomController', () => {
     vi.advanceTimersByTime(100);
     expect(c.room.game!.players[1].exchangePick).toBeNull();
     c.disconnect('p1');
-    expect(c.room.seats[1]!.connected).toBe(false);
+    expect(c.room.members[1]!.connected).toBe(false);
     vi.advanceTimersByTime(100);
     expect(c.room.game!.players[1].exchangePick).not.toBeNull();
     c.join({ playerId: 'p1', name: 'p1', role: 'player' });
-    expect(c.room.seats[1]!.connected).toBe(true);
+    expect(c.room.members[1]!.connected).toBe(true);
+    c.dispose();
+  });
+
+  it('rejects game actions from a member who sits this hand out', () => {
+    const humans = ['p1', 'p2', 'p3', 'p4'];
+    const c = new RoomController(room(humans, 5), 'host', { aiDelayMs: [10, 10] });
+    c.start();
+    expect(c.room.bench).toEqual([4]);
+    expect(c.intent('p4', { type: 'pass' })).toEqual({
+      ok: false,
+      error: 'not playing this hand',
+    });
+    expect(c.viewFor('p4')!.role).toBe('bench');
+    expect(c.viewFor('p4')!.game!.me).toBeNull();
     c.dispose();
   });
 

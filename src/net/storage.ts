@@ -52,10 +52,12 @@ export function setName(name: string): void {
 }
 
 const HOST_KEY = (code: string) => `scmj.host.${code}`;
+/** Bump when RoomState changes shape; older saves are ignored. */
+const SAVE_VERSION = 2;
 const HOST_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function saveHostRoom(room: RoomState): void {
-  put(local, HOST_KEY(room.code), JSON.stringify({ savedAt: Date.now(), room }));
+  put(local, HOST_KEY(room.code), JSON.stringify({ v: SAVE_VERSION, savedAt: Date.now(), room }));
   put(local, 'scmj.lastHost', room.code);
 }
 
@@ -63,8 +65,12 @@ export function loadHostRoom(code: string): RoomState | null {
   const raw = get(local, HOST_KEY(code));
   if (!raw) return null;
   try {
-    const { savedAt, room } = JSON.parse(raw) as { savedAt: number; room: RoomState };
-    if (Date.now() - savedAt > HOST_TTL_MS) return null;
+    const { v, savedAt, room } = JSON.parse(raw) as {
+      v?: number;
+      savedAt: number;
+      room: RoomState;
+    };
+    if (v !== SAVE_VERSION || Date.now() - savedAt > HOST_TTL_MS) return null;
     return room;
   } catch {
     return null;

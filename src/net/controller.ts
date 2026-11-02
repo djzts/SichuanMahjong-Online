@@ -10,18 +10,21 @@ import {
   applyRoomAction,
   canStart,
   endSession,
-  findSeat,
+  findMember,
   findSpectator,
   joinRoom,
   removeSpectator,
+  seatOfMember,
   setConnected,
+  setPlayerCount,
   setSeatAI,
   startHand,
   switchRole,
+  type PlayerCount,
   type Role,
   type RoomState,
 } from '../engine/room';
-import { viewFor, type ClientView } from '../engine/view';
+import { gameViewFor, viewFor, type ClientView } from '../engine/view';
 
 export interface ControllerOptions {
   aiDelayMs?: [number, number];
@@ -31,7 +34,7 @@ export interface ControllerOptions {
 }
 
 export type JoinOutcome =
-  { ok: true; role: Role; seat: number | null; note?: string } | { ok: false; reason: string };
+  { ok: true; role: Role; member: number | null; note?: string } | { ok: false; reason: string };
 
 type Listener = () => void;
 
@@ -85,7 +88,7 @@ export class RoomController {
     return {
       ok: true,
       role: res.role,
-      seat: res.role === 'player' ? res.seat : null,
+      member: res.role === 'player' ? res.member : null,
       note: res.note,
     };
   }
@@ -96,8 +99,11 @@ export class RoomController {
   }
 
   intent(playerId: string, action: Action): { ok: true } | { ok: false; error: string } {
-    const seat = findSeat(this.room, playerId);
-    if (seat < 0) return { ok: false, error: 'spectators cannot act' };
+    const member = findMember(this.room, playerId);
+    if (member < 0) return { ok: false, error: 'spectators cannot act' };
+    const seat = seatOfMember(this.room, member);
+    if (this.room.phase !== 'playing' || seat < 0)
+      return { ok: false, error: 'not playing this hand' };
     const res = applyRoomAction(this.room, seat, action);
     if (!res.ok) return res;
     this.update(res.room);
@@ -106,11 +112,11 @@ export class RoomController {
 
   viewFor(playerId: string): ClientView | null {
     const remaining = this.deadlineAt === null ? null : Math.max(0, this.deadlineAt - Date.now());
-    const seat = findSeat(this.room, playerId);
-    if (seat >= 0)
+    const member = findMember(this.room, playerId);
+    if (member >= 0)
       return viewFor(
         this.room,
-        { kind: 'player', seat, debugAll: this.opts.debugAll && playerId === this.hostId },
+        { kind: 'member', member, debugAll: this.opts.debugAll && playerId === this.hostId },
         remaining,
       );
     if (findSpectator(this.room, playerId) >= 0)
@@ -121,8 +127,12 @@ export class RoomController {
   // -------------------------------------------------------------------------
   // Lobby / session commands (host only — callers must enforce that)
 
-  setSeatAI(seat: number, ai: boolean): void {
-    this.update(setSeatAI(this.room, seat, ai));
+  setSeatAI(member: number, ai: boolean): void {
+    this.update(setSeatAI(this.room, member, ai));
+  }
+
+  setPlayerCount(n: PlayerCount): void {
+    this.update(setPlayerCount(this.room, n));
   }
 
   switchRole(playerId: string, role: Role): void {
@@ -158,7 +168,7 @@ export class RoomController {
   }
 
   private isAutoSeat(seat: number): boolean {
-    const s = this.room.seats[seat];
+    const s = this.room.members[this.room.table[seat]];
     return !!s && (s.kind === 'ai' || !s.connected);
   }
 
@@ -207,7 +217,7 @@ export class RoomController {
   private runAI(seat: number): void {
     if (this.disposed || this.room.phase !== 'playing') return;
     if (!pendingSeats(this.room.game!).includes(seat)) return;
-    const view = viewFor(this.room, { kind: 'player', seat }).game!;
+    const view = gameViewFor(this.room.game!, { kind: 'player', seat });
     const action = aiDecide(view);
     if (!action) return;
     const res = applyRoomAction(this.room, seat, action);

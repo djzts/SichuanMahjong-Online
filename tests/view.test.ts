@@ -34,8 +34,12 @@ function walk(v: unknown, path: string[], out: { path: string; value: unknown }[
   }
 }
 
-function checkSpectatorView(view: ClientView, room: RoomState) {
-  expect(view.role).toBe('spectator');
+function checkSpectatorView(
+  view: ClientView,
+  room: RoomState,
+  role: 'spectator' | 'bench' = 'spectator',
+) {
+  expect(view.role).toBe(role);
   const json = JSON.parse(JSON.stringify(view));
   const entries: { path: string; value: unknown }[] = [];
   walk(json, [], entries);
@@ -71,10 +75,38 @@ describe('viewFor', () => {
     }
   });
 
+  it('temporary observers (临时观察者) also see only the discard piles', () => {
+    let room = newAIRoom(undefined, 6);
+    for (let i = 0; i < 6; i++) {
+      room = playHand(room, 900 + i, (r) => {
+        if (r.phase === 'lobby') return;
+        for (const m of r.bench) {
+          const v = viewFor(r, { kind: 'member', member: m });
+          checkSpectatorView(v, r, 'bench');
+          expect(v.myMember).toBe(m);
+          expect(v.members[m].status).toBe('bench');
+        }
+      });
+    }
+  });
+
+  it('the scoreboard shows live totals for every member', () => {
+    const room = newAIRoom(undefined, 5);
+    let sawLive = false;
+    playHand(room, 31, (r) => {
+      const v = viewFor(r, { kind: 'spectator' });
+      expect(v.members.length).toBe(5);
+      const sum = v.members.reduce((a, m) => a + m.total, 0);
+      expect(sum).toBe(0);
+      if (r.phase === 'playing' && v.members.some((m) => m.handDelta)) sawLive = true;
+    });
+    expect(sawLive).toBe(true);
+  });
+
   it('players see only their own hand', () => {
     playHand(newAIRoom(), 77, (r) => {
       for (let seat = 0; seat < 4; seat++) {
-        const v = viewFor(r, { kind: 'player', seat });
+        const v = viewFor(r, { kind: 'member', member: r.table[seat] });
         const g = r.game!;
         expect(v.game!.me!.hand).toEqual(g.players[seat].hand);
         v.game!.players.forEach((p, s) => {

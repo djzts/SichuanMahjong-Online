@@ -1,7 +1,7 @@
 /** The whole UI: routing, rendering from a ClientView, and input handling. */
 import type { Action } from '../engine/game';
 import { makeRules } from '../engine/rules';
-import { createRoom, type Role } from '../engine/room';
+import { createRoom, PLAYER_COUNTS, type PlayerCount, type Role } from '../engine/room';
 import { suitOf, type Suit, type Tile } from '../engine/tiles';
 import type { ClientView, GameView, MeldView, SettlementView } from '../engine/view';
 import { getName, getPlayerId, lastHostCode, loadHostRoom, setName } from '../net/storage';
@@ -16,7 +16,7 @@ type Dialog = { kind: 'leave' } | { kind: 'copy'; text: string };
 
 type Route =
   | { page: 'home'; code?: string }
-  | { page: 'solo'; debug: boolean; seed?: number }
+  | { page: 'solo'; debug: boolean; seed?: number; n: PlayerCount }
   | { page: 'host'; code: string }
   | { page: 'join'; code: string; role: Role };
 
@@ -27,10 +27,12 @@ function parseRoute(): Route {
   const [a, b] = path.split('/');
   if (a === 'solo') {
     const seed = params.get('seed');
+    const n = Number(params.get('n'));
     return {
       page: 'solo',
       debug: params.get('debug') === '1',
       seed: seed ? Number(seed) : undefined,
+      n: (PLAYER_COUNTS as readonly number[]).includes(n) ? (n as PlayerCount) : 4,
     };
   }
   if (a === 'host' && /^\d{6}$/.test(b ?? '')) return { page: 'host', code: b };
@@ -79,6 +81,8 @@ interface UIState {
   viewBase: number;
   showLog: boolean;
   dialog: Dialog | null;
+  boardOpen: boolean;
+  soloCount: PlayerCount;
   hideResult: boolean;
   deadlineAt: number | null;
   toastMsg: string;
@@ -122,6 +126,8 @@ export class App {
       viewBase: 0,
       showLog: false,
       dialog: null,
+      boardOpen: true,
+      soloCount: this.ui?.soloCount ?? 4,
       hideResult: false,
       deadlineAt: null,
       toastMsg: '',
@@ -159,15 +165,15 @@ export class App {
         this.clearSession();
         break;
       case 'solo':
-        this.setSession(`solo:${r.debug}:${r.seed ?? ''}`, () =>
-          LocalSession.solo(name || '我', pid, { debug: r.debug, seed: r.seed }),
+        this.setSession(`solo:${r.debug}:${r.seed ?? ''}:${r.n}`, () =>
+          LocalSession.solo(name || '我', pid, { debug: r.debug, seed: r.seed, playerCount: r.n }),
         );
         break;
       case 'host':
         this.setSession(`host:${r.code}`, () => {
           const saved = loadHostRoom(r.code);
           if (!saved) return null;
-          const hostId = saved.seats[0]?.playerId ?? pid;
+          const hostId = saved.members[0]?.playerId ?? pid;
           return new LocalSession(saved, hostId, { online: true });
         });
         break;
@@ -245,9 +251,17 @@ export class App {
                <button class="btn" data-act="go-home">${S.back}</button></div>`
             : SOLO_ONLY
               ? `<button class="btn primary wide" data-act="solo">${S.solo}</button>
+                 <div class="count-picker" role="group" aria-label="${S.playerCount}">
+          <span class="muted">${S.soloCount}</span>
+          ${PLAYER_COUNTS.map((n) => `<button class="btn small ${this.ui.soloCount === n ? 'on' : ''}" data-act="solo-count" data-n="${n}">${S.modeLabel(n)}</button>`).join('')}
+        </div>
                  <p class="hint center">${S.soloOnlyNote}</p>`
               : `
         <button class="btn primary wide" data-act="solo">${S.solo}</button>
+        <div class="count-picker" role="group" aria-label="${S.playerCount}">
+          <span class="muted">${S.soloCount}</span>
+          ${PLAYER_COUNTS.map((n) => `<button class="btn small ${this.ui.soloCount === n ? 'on' : ''}" data-act="solo-count" data-n="${n}">${S.modeLabel(n)}</button>`).join('')}
+        </div>
         <button class="btn primary wide" data-act="create">${S.createRoom}</button>
         ${restore ? `<button class="btn wide" data-act="restore" data-code="${restore}">${S.restoreRoom(restore)}</button>` : ''}
         <div class="join-row">
@@ -296,22 +310,27 @@ export class App {
 
   private renderLobby(v: ClientView, s: Session): string {
     const host = s.host;
-    const seats = v.seats
-      .map((seat, i) => {
-        const me = v.mySeat === i;
+    const n = v.playerCount;
+    const seats = v.members
+      .map((m, i) => {
+        const me = v.myMember === i;
         let body: string;
-        if (seat.kind === 'empty') body = `<div class="seat-name empty">${S.emptySeat}</div>`;
+        if (m.kind === 'empty') body = `<div class="seat-name empty">${S.emptySeat}</div>`;
         else
-          body = `<div class="seat-name">${esc(seat.name)}${me ? '（我）' : ''}</div>
-          <div class="seat-tags">${i === 0 ? `<span class="chip host">${S.hostTag}</span>` : ''}${seat.kind === 'ai' ? `<span class="chip">${S.ai}</span>` : ''}${seat.kind === 'human' && !seat.connected ? `<span class="chip warn">${S.offline}</span>` : ''}</div>`;
+          body = `<div class="seat-name">${esc(m.name)}${me ? '（我）' : ''}</div>
+          <div class="seat-tags">${i === 0 ? `<span class="chip host">${S.hostTag}</span>` : ''}${m.kind === 'ai' ? `<span class="chip">${S.ai}</span>` : ''}${m.kind === 'human' && !m.connected ? `<span class="chip warn">${S.offline}</span>` : ''}</div>`;
+        const first =
+          n > 4
+            ? `<span class="chip ${i < 4 ? 'ok' : 'bench'}">${i < 4 ? S.firstPlays : S.firstBench}</span>`
+            : '';
         let ctl = '';
         if (host && i > 0) {
-          if (seat.kind === 'empty')
+          if (m.kind === 'empty')
             ctl = `<button class="btn small" data-act="ai" data-seat="${i}" data-on="1">${S.addAI}</button>`;
-          else if (seat.kind === 'ai')
+          else if (m.kind === 'ai')
             ctl = `<button class="btn small" data-act="ai" data-seat="${i}" data-on="0">${S.removeAI}</button>`;
         }
-        return `<div class="lobby-seat ${me ? 'mine' : ''}"><div class="seat-no">${S.seat(i + 1)}</div>${body}${ctl}</div>`;
+        return `<div class="lobby-seat ${me ? 'is-me' : ''}"><div class="seat-no">${S.seat(i + 1)} ${first}</div>${body}${ctl}</div>`;
       })
       .join('');
     const specs: string[] = [];
@@ -322,11 +341,17 @@ export class App {
         ${host && sp ? `<button class="btn small" data-act="kick" data-index="${i}">${S.kick}</button>` : ''}</div>`,
       );
     }
-    const full = v.seats.every((x) => x.kind !== 'empty');
+    const full = v.members.every((x) => x.kind !== 'empty');
+    const modes = host
+      ? `<div class="count-picker">${PLAYER_COUNTS.map((c) => {
+          const ok = host.canSetPlayerCount(c);
+          return `<button class="btn small ${c === n ? 'on' : ''}" data-act="count" data-n="${c}" ${ok || c === n ? '' : `disabled title="${S.countBlocked}"`}>${S.modeLabel(c)}</button>`;
+        }).join('')}</div>`
+      : `<div class="count-picker"><span class="chip on">${S.modeLabel(n)}</span></div>`;
     let bottom: string;
     if (host) {
       bottom = `<button class="btn primary big" data-act="start" ${full ? '' : 'disabled'}>${S.start}</button>
-        ${full ? '' : `<p class="hint">${S.needFull}</p>`}`;
+        ${full ? '' : `<p class="hint">${S.needFull(n)}</p>`}`;
     } else {
       bottom = `<p class="hint">${S.waitStart}</p>
         ${v.role === 'player' ? `<button class="btn" data-act="switch" data-role="spectator">${S.toWatch}</button>` : `<button class="btn" data-act="switch" data-role="player">${S.toSeat}</button>`}`;
@@ -340,11 +365,38 @@ export class App {
           <button class="btn ghost" data-act="leave">${S.leave}</button>
         </div>
       </div>
-      <div class="lobby-seats">${seats}</div>
-      <h3>${S.spectators}（${v.spectators.length}/${v.spectatorSlots}）</h3>
+      <div class="mode">
+        <h3>${S.playerCount}</h3>
+        ${modes}
+        <p class="hint">${S.modeRule[n]}</p>
+      </div>
+      <div class="lobby-seats n${n}">${seats}</div>
+      <h3>${S.spectators}（${v.spectators.length}/${v.spectatorSlots}）<span class="muted small-note">${S.spectatorVsBench}</span></h3>
       <div class="spec-slots">${specs.join('')}</div>
       <div class="lobby-foot">${bottom}</div>
       <details class="rules"><summary>${S.rulesTitle}</summary><ul>${S.rulesBody.map((l) => `<li>${l}</li>`).join('')}</ul></details>
+    </div>`;
+  }
+
+  private renderScoreboard(v: ClientView): string {
+    const rows = v.members
+      .map((m, i) => ({ ...m, i }))
+      .filter((m) => m.kind !== 'empty')
+      .sort((a, b) => b.total - a.total || a.no - b.no);
+    const items = rows
+      .map(
+        (m, rank) => `<li class="${m.status} ${v.myMember === m.i ? 'me' : ''}">
+          <span class="rk">${rank + 1}</span>
+          <span class="nm">${esc(m.name)}</span>
+          ${m.status === 'bench' ? `<span class="tag">${S.benchShort}</span>` : ''}
+          <b class="${deltaCls(m.total)}">${signed(m.total)}</b>
+          ${m.handDelta ? `<small class="${deltaCls(m.handDelta)}">${signed(m.handDelta)}</small>` : ''}
+        </li>`,
+      )
+      .join('');
+    return `<div class="scoreboard ${this.ui.boardOpen ? '' : 'closed'}">
+      <button class="sb-head" data-act="board" aria-expanded="${this.ui.boardOpen}">${S.scoreboard}<span>${this.ui.boardOpen ? '▴' : '▾'}</span></button>
+      <ol>${items}</ol>
     </div>`;
   }
 
@@ -432,25 +484,33 @@ export class App {
 
     const bottomSeat = seatAt(0);
     const bottom = me ? this.renderMine(v, g) : this.renderSpectatorBottom(v, g, bottomSeat);
+    const roleChip =
+      v.role === 'spectator'
+        ? `<span class="chip watch">${S.watching}</span>`
+        : v.role === 'bench'
+          ? `<span class="chip bench">${S.benchChip}</span>`
+          : '';
+    const peek =
+      v.phase === 'handEnd' && this.ui.hideResult
+        ? `<button class="btn small primary" data-act="show-result">${S.viewResult}</button>`
+        : '';
     const top = `<div class="topbar">
       <span class="muted">${v.code === 'solo' ? '单机' : `${S.roomCode} ${v.code}`}</span>
-      ${v.role === 'spectator' ? `<span class="chip watch">${S.watching}</span><button class="btn small" data-act="rotate">${S.rotate}</button>` : ''}
+      ${roleChip}
+      ${me ? '' : `<button class="btn small" data-act="rotate">${S.rotate}</button>`}
       <button class="btn small" data-act="log">${S.log}</button>
       <button class="btn small ghost" data-act="leave">${S.leave}</button>
+      ${peek}
     </div>`;
     let modal = '';
     if (v.phase === 'handEnd' && !this.ui.hideResult) modal = this.renderResult(v, s);
     else if (this.ui.showLog) modal = this.renderLog(v);
-    const peek =
-      v.phase === 'handEnd' && this.ui.hideResult
-        ? `<button class="btn primary peek" data-act="show-result">${S.viewResult}</button>`
-        : '';
     return `<div class="table ${v.role}">
       ${top}
+      ${this.renderScoreboard(v)}
       ${others}
       <div class="center">${rivers}${center}</div>
       ${bottom}
-      ${peek}
       ${modal}
     </div>`;
   }
@@ -461,6 +521,7 @@ export class App {
     return `<div class="mine spectator-bottom">
       ${this.plate(v, g, seat)}
       <div class="melds">${melds}</div>
+      <div class="hint">${v.role === 'bench' ? S.benchNote : S.spectatorNote}</div>
       <div class="toast-anchor" data-seat="${seat}"></div>
     </div>`;
   }
@@ -654,12 +715,10 @@ export class App {
     const host = s.host;
     return `<div class="modal-bg"><div class="modal result">
       <h2>${S.handOver(v.handNo)} <small>${g.endReason === 'wall-exhausted' ? S.exhausted : S.threeWon}</small></h2>
+      ${this.renderRotation(v)}
       <div class="settle-list">${this.renderSettlements(v)}</div>
       <div class="settle-row total"><div class="s-label">${S.thisHand}</div>${this.deltaRow(v, g.handDeltas)}</div>
-      <div class="settle-row total"><div class="s-label">${S.total}</div>${this.deltaRow(
-        v,
-        v.seats.map((x) => x.total),
-      )}</div>
+      <div class="settle-row total"><div class="s-label">${S.total}</div>${this.memberRow(v)}</div>
       <div class="row end">
         <button class="btn ghost" data-act="hide-result">${S.viewTable}</button>
         ${host ? `<button class="btn" data-act="end-session">${S.endSession}</button><button class="btn primary" data-act="next-hand">${S.nextHand}</button>` : `<span class="muted">${S.waitNext}</span>`}
@@ -667,15 +726,52 @@ export class App {
     </div></div>`;
   }
 
+  /** Running totals of every member (4–7 people). */
+  private memberRow(v: ClientView): string {
+    return `<div class="deltas members n${v.playerCount}">${v.members
+      .map(
+        (m) =>
+          `<span class="${deltaCls(m.total)} ${m.status}"><i>${esc(m.name)}</i>${signed(m.total)}</span>`,
+      )
+      .join('')}</div>`;
+  }
+
+  private renderRotation(v: ClientView): string {
+    const r = v.rotation;
+    if (!r) return '';
+    const name = (m: number) => esc(v.members[m].name);
+    const lines: string[] = [];
+    if (r.stayer) lines.push(S.stayLine(name(r.stayer.member), r.stayer.reason));
+    for (const o of r.out) lines.push(S.outLine(name(o.member), S.outReason[o.reason]));
+    for (const i of r.in) {
+      const left = r.out.find((o) => v.members[o.member].seat === i.seat);
+      lines.push(S.inLine(name(i.member), left ? name(left.member) : ''));
+    }
+    return `<div class="rotation"><h3>${S.rotationTitle}</h3><ul>${lines.map((l) => `<li>${l}</li>`).join('')}</ul></div>`;
+  }
+
   private renderFinal(v: ClientView): string {
-    const ranking = v.seats.map((s, i) => ({ ...s, i })).sort((a, b) => b.total - a.total);
+    const ranking = v.members
+      .filter((m) => m.kind !== 'empty')
+      .sort((a, b) => b.total - a.total || a.no - b.no);
     return `<div class="home"><div class="home-card final">
       <h1>${S.final}</h1>
       <ol class="ranking">${ranking.map((r) => `<li><span>${esc(r.name)}</span><b class="${deltaCls(r.total)}">${signed(r.total)}</b></li>`).join('')}</ol>
       <h3>${S.history}</h3>
-      <table class="history"><tr><th></th>${v.seats.map((s) => `<th>${esc(s.name)}</th>`).join('')}</tr>
-      ${v.history.map((h) => `<tr><td>${S.hand(h.handNo)}</td>${h.deltas.map((d) => `<td class="${deltaCls(d)}">${signed(d)}</td>`).join('')}</tr>`).join('')}
-      </table>
+      <div class="history-wrap"><table class="history"><tr><th></th>${v.members.map((m) => `<th>${esc(m.name)}</th>`).join('')}</tr>
+      ${v.history
+        .map(
+          (h) =>
+            `<tr><td>${S.hand(h.handNo)}</td>${h.deltas
+              .map((d) =>
+                d === null
+                  ? `<td class="muted" title="${S.benchChip}">—</td>`
+                  : `<td class="${deltaCls(d)}">${signed(d)}</td>`,
+              )
+              .join('')}</tr>`,
+        )
+        .join('')}
+      </table></div>
       <button class="btn primary" data-act="go-home">${S.back}</button>
     </div></div>`;
   }
@@ -816,9 +912,24 @@ export class App {
     switch (act) {
       case 'solo': {
         const name = this.readName();
-        if (name) location.hash = '#solo';
+        const n = this.ui.soloCount;
+        if (name) location.hash = n === 4 ? '#solo' : `#solo?n=${n}`;
         break;
       }
+      case 'solo-count': {
+        const input = this.screen.querySelector<HTMLInputElement>('#name');
+        if (input) setName(input.value.trim().slice(0, 12));
+        this.ui.soloCount = Number(el.dataset.n) as PlayerCount;
+        this.render();
+        break;
+      }
+      case 'count':
+        s?.host?.setPlayerCount(Number(el.dataset.n) as PlayerCount);
+        break;
+      case 'board':
+        this.ui.boardOpen = !this.ui.boardOpen;
+        this.render();
+        break;
       case 'create': {
         const name = this.readName();
         if (!name) return;
