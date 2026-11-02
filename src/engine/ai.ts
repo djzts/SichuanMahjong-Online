@@ -15,6 +15,7 @@ function visibleCounts(view: GameView): number[] {
     for (const t of p.discards) c[t]++;
     for (const m of p.melds ?? []) if (m.tile !== null) c[m.tile] += m.kind === 'pung' ? 3 : 4;
     if (p.revealed) for (const t of p.revealed.hand) c[t]++;
+    else if (p.winTile !== undefined) c[p.winTile]++;
   }
   return c.map((x) => Math.min(x, 4));
 }

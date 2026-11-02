@@ -468,12 +468,14 @@ export class App {
         .join('')}</div>`;
     } else if (p.debugHand) {
       handPart = `<div class="tiles debug">${p.debugHand.map((t) => tileHtml(t, `mini ${o}`)).join('')}</div>`;
-    } else if (p.handCount !== undefined && !p.won) {
+    } else if (p.handCount !== undefined) {
       const n = p.handCount;
+      // A winner keeps their hand face down until the hand ends; only the winning tile shows.
+      const win = p.winTile !== undefined ? tileHtml(p.winTile, `mini ${o} win`) : '';
       handPart =
         pos === 2
-          ? `<div class="tiles backs">${Array.from({ length: n }, () => backHtml('mini')).join('')}</div>`
-          : `<div class="tiles edges" title="${n}"><span class="count">${n}</span>${'<div class="edge"></div>'.repeat(n)}</div>`;
+          ? `<div class="tiles backs">${win}${Array.from({ length: n }, () => backHtml('mini')).join('')}</div>`
+          : `<div class="tiles edges" title="${n}"><span class="count">${n}</span>${'<div class="edge"></div>'.repeat(n)}${win}</div>`;
     }
     return `<div class="seat pos-${pos}">
       ${this.plate(v, g, seat)}
@@ -731,7 +733,8 @@ export class App {
         (i) =>
           `${S.fanNames[i.key] ?? i.key}${i.count && i.count > 1 ? `×${i.count}` : ''}${i.fan ? ` ${i.fan}` : ''}`,
       );
-      fan = `<div class="fan">${items.join(' · ')} = <b>${s.fan.fan}${S.fanUnit}</b>${s.fan.capped ? paren(S.capped) : ''}</div>`;
+      const total = `<b>${s.fan.fan}${S.fanUnit}</b>${s.fan.capped ? paren(S.capped) : ''}`;
+      fan = `<div class="fan">${items.length ? `${items.join(' · ')} = ` : ''}${total}</div>`;
     }
     const tile = s.tile !== undefined ? tileHtml(s.tile, 'inline-tile') : '';
     return `<div class="s-label">${label} ${tile}${fan}</div>`;

@@ -91,6 +91,11 @@ export interface PlayerPublicView {
    * (tile = null). Shown to players only, never to spectators.
    */
   revealed?: { hand: Tile[]; tile: Tile | null };
+  /**
+   * While the hand is still being played, another player's win shows only the winning tile;
+   * the rest of their hand stays face down until the hand ends.
+   */
+  winTile?: Tile;
   /** Debug mode only (single-player). */
   debugHand?: Tile[];
 }
@@ -213,6 +218,7 @@ export function gameViewFor(
   const vis = game.rules.spectator.visible;
   const mySeat = viewer.kind === 'player' ? viewer.seat : -1;
   const voidRevealed = step.kind !== 'exchange' && step.kind !== 'void';
+  const ended = step.kind === 'ended';
 
   const players: PlayerPublicView[] = game.players.map((p, s) => {
     const v: PlayerPublicView = {
@@ -226,13 +232,18 @@ export function gameViewFor(
     if (showMelds)
       v.melds = p.melds.map((m) => ({
         kind: m.kind,
-        tile: m.kind === 'kong-concealed' && s !== mySeat && !p.won ? null : m.tile,
+        tile: m.kind === 'kong-concealed' && s !== mySeat && !ended ? null : m.tile,
       }));
-    if (!spectator || vis.handCount) v.handCount = p.hand.length;
+    if (!spectator || vis.handCount)
+      // A winner's face-down tiles: the winning hand minus the winning tile shown beside it.
+      v.handCount = p.won ? p.won.hand.length - 1 : p.hand.length;
     if ((!spectator || vis.voidSuit) && (voidRevealed || s === mySeat)) v.voidSuit = p.voidSuit;
-    if (!spectator && p.won) v.revealed = { hand: [...p.won.hand], tile: p.won.tile };
-    else if (!spectator && step.kind === 'ended' && s !== mySeat)
+    if (!spectator && p.won) {
+      if (ended || s === mySeat) v.revealed = { hand: [...p.won.hand], tile: p.won.tile };
+      else v.winTile = p.won.tile;
+    } else if (!spectator && ended && s !== mySeat) {
       v.revealed = { hand: [...p.hand], tile: null };
+    }
     if (viewer.kind === 'player' && viewer.debugAll && s !== mySeat) v.debugHand = [...p.hand];
     return v;
   });
@@ -264,11 +275,12 @@ export function gameViewFor(
     if (s.unpaid) v.unpaid = s.unpaid;
     if (!spectator || vis.fanDetail) {
       const f = fanView(s);
-      if (f) v.fan = f;
+      // Pattern names would give away another winner's hand: show only the total until the end.
+      if (f) v.fan = ended || s.seat === mySeat ? f : { ...f, items: [] };
     }
     if (!spectator) {
       if (s.meldKind) v.meldKind = s.meldKind;
-      const hiddenKong = s.meldKind === 'kong-concealed' && s.seat !== mySeat;
+      const hiddenKong = s.meldKind === 'kong-concealed' && s.seat !== mySeat && !ended;
       if (s.tile !== undefined && !hiddenKong) v.tile = s.tile;
     }
     return v;

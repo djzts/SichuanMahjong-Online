@@ -112,8 +112,12 @@ describe('viewFor', () => {
         v.game!.players.forEach((p, s) => {
           expect(p).not.toHaveProperty('debugHand');
           expect(p).not.toHaveProperty('hand');
-          if (s !== seat && !g.players[s].won && g.step.kind !== 'ended')
+          if (s !== seat && g.step.kind !== 'ended') {
+            // Other players' hands stay hidden until the hand ends, even after they win.
             expect(p).not.toHaveProperty('revealed');
+            if (g.players[s].won) expect(p.winTile).toBe(g.players[s].won!.tile);
+          }
+          if (s !== seat && g.step.kind === 'ended') expect(p).toHaveProperty('revealed');
           if (g.step.kind === 'void' && s !== seat) expect(p).not.toHaveProperty('voidSuit');
           for (const m of p.melds ?? [])
             if (m.kind === 'kong-concealed' && s !== seat && !g.players[s].won)
@@ -125,6 +129,24 @@ describe('viewFor', () => {
         }
       }
     });
+  });
+
+  it('another player’s win shows the fan total only, the breakdown after the hand', () => {
+    let checked = 0;
+    playHand(newAIRoom(), 4242, (r) => {
+      const g = r.game!;
+      const ended = g.step.kind === 'ended';
+      for (let seat = 0; seat < 4; seat++) {
+        const v = viewFor(r, { kind: 'member', member: r.table[seat] }).game!;
+        v.settlements.forEach((st) => {
+          if (!st.fan) return;
+          checked++;
+          if (ended || st.seat === seat) expect(st.fan.items.length).toBeGreaterThan(0);
+          else expect(st.fan.items).toEqual([]);
+        });
+      }
+    });
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('spectator visibility switches add melds / void suits / hand counts', () => {
